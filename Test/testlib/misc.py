@@ -1,7 +1,6 @@
-#!/usr/bin/env python3
 # SPDX-License-Identifier: Apache-2.0
 # -----------------------------------------------------------------------------
-# Copyright 2019-2020 Arm Limited
+# Copyright 2020 Arm Limited
 #
 # Licensed under the Apache License, Version 2.0 (the "License"); you may not
 # use this file except in compliance with the License. You may obtain a copy
@@ -15,32 +14,30 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 # -----------------------------------------------------------------------------
+"""
+A collection of useful utility functions that are not module specific.
+"""
 
-"""
-Download test image sets, if images are missing already.
-"""
 import os
-import sys
-import urllib.request
 
-def retrieve_kodak_set():
-    for i in range(1, 25):
-        fle = "ldr-rgb-kodim%02u.png" % i
-        dst = os.path.join("Test", "Kodak_Images", "LDR-RGB", fle)
-        src = "http://r0k.us/graphics/kodak/kodak/kodim%02u.png" % i
 
-        if not os.path.exists(dst):
-            print("Kodak image %u: Downloading" % i)
-            urllib.request.urlretrieve(src, dst)
-        else:
-            print("Kodak image %u: Skipping" % i)
-
-def main():
+def path_splitall(path):
     """
-    The main function.
-    """
-    retrieve_kodak_set()
-    return 0
+    Utility function to split a relative path into its component pieces.
 
-if __name__ == "__main__":
-    sys.exit(main())
+    Args:
+        path: The relative path to split.
+
+    Return:
+        An array of path parts.
+    """
+    # Sanity check we have a relative path on Windows
+    assert ":" not in path
+
+    parts = []
+    while path:
+        head, tail = os.path.split(path)
+        path = head
+        parts.insert(0, tail)
+
+    return parts
