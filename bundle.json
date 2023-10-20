@@ -1,0 +1,31 @@
+{
+    "name": "@ohos/astc-encoder",
+    "description": "This is the official repository for Arm ASTC encoders,which are texture compressors for adaptive extensible texture compression data formats.",
+    "version": "3.7",
+    "license": "Apache-2.0",
+    "publishAs": "code-segment",
+    "segment":{
+        "destPath": "third_party/astc-encoder"
+    },
+    "dirs": {},
+    "scripts": {},
+    "licensePath": "COPYING",
+    "component": {
+        "name": "astc-encoder",
+        "subsystem": "thirdparty",
+        "syscap": [],
+        "features": [],
+        "adapted_system_type": ["standard"],
+        "rom": "",
+        "ram": "",
+        "deps": {
+            "components": [],
+            "third_party": []
+        },
+        "build": {
+            "sub_component": [],
+            "inner_kits": [],
+            "test": []
+        }
+    }
+}
