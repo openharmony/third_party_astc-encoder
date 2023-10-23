@@ -64,7 +64,7 @@ Note:If the text contains special characters, please escape them according to th
         <filefilterlist>
             <filefilter name="defaultFilter" desc="Files not to check" >
                 <filteritem type="filename" name="*.jpg|*.png|*.hdr|*.jar|*.exr|*.astc|*.ktx|*.tga|*.dds|*.bmp|*.csv|*.rst" desc="Self-developed media test resource file."/>
-                <filteritem type="filename" name="LICENCE*" desc="LICENCE file"/>
+                <filteritem type="filepath" name="LICENCE" desc="LICENCE file"/>
                 <filteritem type="filepath" name="README.OpenSource" desc="Filter readme.opensource files"/>
                 <filteritem type="filepath" name="COPYING" desc="Filter COPYING files"/>
                 <filteritem type="filepath" name=".gitmodules" desc="License matcher rules, not license header"/>
