@@ -1,0 +1,9 @@
+{
+    "patches":[
+        {
+            "project":"image_framework",
+            "patch":"foundation/multimedia/image_framework",
+            "pr_url":"https://gitee.com/openharmony/multimedia_image_framework/pulls/1034"
+        }
+    ]
+}
