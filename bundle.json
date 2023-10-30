@@ -9,7 +9,7 @@
     },
     "dirs": {},
     "scripts": {},
-    "licensePath": "COPYING",
+    "licensePath": "LICENCE",
     "component": {
         "name": "astc-encoder",
         "subsystem": "thirdparty",
@@ -23,7 +23,7 @@
             "third_party": []
         },
         "build": {
-            "sub_component": [],
+            "sub_component": ["//third_party/astc-encoder:astc_encoder_shared"],
             "inner_kits": [],
             "test": []
         }

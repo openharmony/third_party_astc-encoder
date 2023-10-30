@@ -1,9 +1,14 @@
 {
     "patches":[
         {
-            "project":"image_framework",
+            "project":"multimedia_image_framework",
             "patch":"foundation/multimedia/image_framework",
             "pr_url":"https://gitee.com/openharmony/multimedia_image_framework/pulls/1034"
+        },
+        {
+            "project":"vendor_hihope",
+            "path":"vendor/hihope/rk3568",
+            "pr_url":"https://gitee.com/openharmony/vendor_hihope/pulls/964"
         }
     ]
 }
