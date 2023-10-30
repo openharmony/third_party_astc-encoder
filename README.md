@@ -20,7 +20,7 @@ read the full [Khronos Data Format Specification][2] for all the details.
 
 This project is licensed under the Apache 2.0 license. By downloading any
 component from this repository you acknowledge that you accept terms specified
-in the [LICENSE.txt](LICENSE.txt) file.
+in the [LICENSE](LICENSE) file.
 
 # Encoder feature support
 
@@ -216,10 +216,6 @@ how to test any modifications to the source code in this repository.
 
 If you have issues with the `astcenc` encoder, or questions about the ASTC
 texture format itself, please raise them in the GitHub issue tracker.
-
-If you have any questions about Arm Mali GPUs, application development for Arm
-Mali GPUs, or general graphics technology please submit them on the [Arm Mali
-Graphics forums](https://community.arm.com/graphics/).
 
 - - -
 
