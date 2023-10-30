@@ -63,98 +63,13 @@ Note:If the text contains special characters, please escape them according to th
         </policylist>
         <filefilterlist>
             <filefilter name="defaultFilter" desc="Files not to check" >
-                <filteritem type="filename" name="*.jpg|*.png|*.hdr|*.jar|*.exr|*.astc|*.ktx|*.tga|*.dds|*.bmp|*.csv|*.rst" desc="Self-developed media test resource file."/>
+                <filteritem type="filename" name="*.jpg|*.png|*.hdr|*.jar|*.exr|*.astc|*.ktx|*.tga|*.dds|*.bmp|*.csv" desc="Self-developed media test resource file."/>
                 <filteritem type="filepath" name="LICENCE" desc="LICENCE file"/>
-                <filteritem type="filepath" name="README.OpenSource" desc="Filter readme.opensource files"/>
                 <filteritem type="filepath" name="COPYING" desc="Filter COPYING files"/>
-                <filteritem type="filepath" name=".gitmodules" desc="License matcher rules, not license header"/>
-                <filteritem type="filepath" name="Source/stb_image_write.h" desc="License matcher rules, not license header"/>
-                <filteritem type="filepath" name="Test/DocSource/conf.py" desc="License matcher rules, not license header"/>
-                <filteritem type="filepath" name=".pylintrc" desc="License matcher rules, not license header"/>
-                <filteritem type="filepath" name="Source/wuffs-v0.3.c" desc="License matcher rules, not license header"/>
-                <filteritem type="filepath" name="jenkins/dockerimage.Jenkinsfile" desc="License matcher rules, not license header"/>
-                <filteritem type="filepath" name="jenkins/nightly.Jenkinsfile" desc="License matcher rules, not license header"/>
-                <filteritem type="filepath" name="jenkins/release.Jenkinsfile" desc="License matcher rules, not license header"/>
-                <filteritem type="filepath" name="Test/astc_update_ref.sh" desc="License matcher rules, not license header"/>
-                <filteritem type="filepath" name="Test/make.bat" desc="License matcher rules, not license header"/>
-                <filteritem type="filepath" name="Test/Data/empty.unk" desc="License matcher rules, not license header"/>
-                <filteritem type="filepath" name="Test/astc_minify_test.sh" desc="License matcher rules, not license header"/>
-                <filteritem type="filepath" name="Test/Images/Khronos/LICENSE.txt" desc="License matcher rules, MIT"/>
                 <filteritem type="filepath" name="Source/stb_image.h" desc="License matcher rules, MIT"/>
-                <filteritem type="filepath" name="Source/tinyexr.h" desc="License matcher rules, BSD-3-Clause"/>
                 <filteritem type="filepath" name="Test/Images/HDRIHaven/LICENSE.txt" desc="License matcher rules, not license header"/>
                 <filteritem type="filepath" name="jenkins/build-image.sh" desc="License matcher rules, not license header"/>
                 <filteritem type="filepath" name="jenkins/build.Dockerfile" desc="License matcher rules, not license header"/>
-                
-                <filteritem type="filepath" name="Source/astcenc_ideal_endpoints_and_weights.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_vecmathlib_neon_4.h" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_image.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_vecmathlib_none_4.h" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/UnitTest/test_simd.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/astc_test_python.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Utils/astc_rgbm_codec.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/astc_test_result_plot.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Utils/astc_test_autoextract.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_integer_sequence.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_vecmathlib_sse_4.h" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/UnitTest/test_softfloat.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/astc_test_result_report.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Utils/astc_test_autoextract_hdr.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_internal.h" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_weight_align.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/astc_trace_analysis.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Utils/Example/astc_api_example.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc.h" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_mathlib.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_weight_quant_xfer_tables.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_averages_and_directions.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_mathlib.h" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenccli_error_metrics.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/astc_dump_binary.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_block_sizes.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_mathlib_softfloat.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenccli_image.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/astc_image_info.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_color_quantize.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_partition_tables.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenccli_image_external.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/astc_image_sweep.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_color_unquantize.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_percentile_tables.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenccli_image_load_store.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/astc_profile_valgrind.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_compress_symbolic.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_pick_best_endpoint_format.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenccli_internal.h" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/astc_quality_test.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/testlib/encoder.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_compute_variance.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_platform_isa_detection.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenccli_platform_dependents.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/astc_size_binary.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/testlib/image.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_decompress_symbolic.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_quantization.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenccli_toplevel.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/astc_test_competitive.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/testlib/misc.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_diagnostic_trace.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_symbolic_physical.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenccli_toplevel_help.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/astc_test_competitive_plot.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/testlib/resultset.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_diagnostic_trace.h" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_vecmathlib.h" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/Fuzzers/build.sh" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/astc_test_functional.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/testlib/testset.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_entry.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_vecmathlib_avx2_8.h" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/Fuzzers/fuzz_astc_physical_to_symbolic.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/astc_test_image.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_find_best_partitioning.cpp" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Source/astcenc_vecmathlib_common_4.h" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
-                <filteritem type="filepath" name="Test/astc_test_image_dl.py" desc="No copyright is claimed, and the software is hereby placed in the public domain."/>
             </filefilter>
         </filefilterlist>
         <licensematcherlist>

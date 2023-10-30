@@ -6,6 +6,6 @@
         "Version Number":"3.7",
         "Owner":"wangyonglang@huawei.com",
         "Upstream URL":"https://github.com/ARM-software/astc-encoder.git",
-        "Description":"The Arm?Adaptive Scalable Texture Compression (ASTC) Encoder,astcenc,is a command-line tool for compressing and decompressing images using the ASTC texture compression standard."
+        "Description":"The Arm Adaptive Scalable Texture Compression (ASTC) Encoder,astcenc,is a command-line tool for compressing and decompressing images using the ASTC texture compression standard."
     }
 ]
