@@ -806,7 +806,13 @@ static void compress_image(
 	unsigned int thread_index,
 	const astcenc_image& image,
 	const astcenc_swizzle& swizzle,
+#if QUALITY_CONTROL
+	uint8_t* buffer,
+	bool calQualityEnable,
+	int32_t *mse[RGBA_COM]
+#else
 	uint8_t* buffer
+#endif
 ) {
 	const block_size_descriptor& bsd = *ctx.bsd;
 	astcenc_profile decode_mode = ctx.config.profile;
@@ -932,7 +938,19 @@ static void compress_image(
 			int offset = ((z * yblocks + y) * xblocks + x) * 16;
 			uint8_t *bp = buffer + offset;
 			physical_compressed_block* pcb = reinterpret_cast<physical_compressed_block*>(bp);
+#if QUALITY_CONTROL
+			int32_t *mseBlock[RGBA_COM] = {nullptr, nullptr, nullptr, nullptr};
+			if (calQualityEnable) {
+				int offset = (z * yblocks + y) * xblocks + x;
+				mseBlock[R_COM] = mse[R_COM] + offset;
+				mseBlock[G_COM] = mse[G_COM] + offset;
+				mseBlock[B_COM] = mse[B_COM] + offset;
+				mseBlock[A_COM] = mse[A_COM] + offset;
+			}
+			compress_block(ctx, blk, *pcb, temp_buffers, calQualityEnable, mseBlock);
+#else
 			compress_block(ctx, blk, *pcb, temp_buffers);
+#endif
 		}
 
 		ctx.manage_compress.complete_task_assignment(count);
@@ -948,6 +966,10 @@ astcenc_error astcenc_compress_image(
 	const astcenc_swizzle* swizzle,
 	uint8_t* data_out,
 	size_t data_len,
+#if QUALITY_CONTROL
+	bool calQualityEnable,
+	int32_t *mse[RGBA_COM],
+#endif
 	unsigned int thread_index
 ) {
 #if defined(ASTCENC_DECOMPRESS_ONLY)
@@ -1022,9 +1044,11 @@ astcenc_error astcenc_compress_image(
 
 	// Wait for compute_averages to complete before compressing
 	ctx->manage_avg.wait();
-
+#if QUALITY_CONTROL
+	compress_image(*ctx, thread_index, image, *swizzle, data_out, calQualityEnable, mse);
+#else
 	compress_image(*ctx, thread_index, image, *swizzle, data_out);
-
+#endif
 	// Wait for compress to complete before freeing memory
 	ctx->manage_compress.wait();
 
