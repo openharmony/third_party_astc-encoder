@@ -139,6 +139,10 @@ struct compression_workload
 	uint8_t* data_out;
 	size_t data_len;
 	astcenc_error error;
+#if QUALITY_CONTROL
+	bool calQualityEnable;
+	int32_t *mse[RGBA_COM];
+#endif
 };
 
 /**
@@ -198,7 +202,11 @@ static void compression_workload_runner(
 	compression_workload* work = static_cast<compression_workload*>(payload);
 	astcenc_error error = astcenc_compress_image(
 	                       work->context, work->image, &work->swizzle,
-	                       work->data_out, work->data_len, thread_id);
+	                       work->data_out, work->data_len,
+#if QUALITY_CONTROL
+	                       work->calQualityEnable, work->mse,
+#endif
+	                       thread_id);
 
 	// This is a racy update, so which error gets returned is a random, but it
 	// will reliably report an error if an error occurs
@@ -1329,6 +1337,53 @@ static void image_preprocess_premultiply(
 	}
 }
 
+#if QUALITY_CONTROL
+constexpr double MAX_PSNR = 99.9;
+constexpr double MAX_VALUE = 255;
+constexpr double THRESHOLD_R = 30.0;
+constexpr double THRESHOLD_G = 30.0;
+constexpr double THRESHOLD_B = 30.0;
+constexpr double THRESHOLD_A = 30.0;
+constexpr double THRESHOLD_RGB = 30.0;
+constexpr double LOG_BASE = 10.0;
+
+bool CheckQuality(int32_t* mseIn[RGBA_COM], int blockNum, int blockXYZ)
+{
+    double psnr[RGBA_COM + 1];
+    double threshold[RGBA_COM + 1] = { THRESHOLD_R, THRESHOLD_G, THRESHOLD_B, THRESHOLD_A, THRESHOLD_RGB};
+    uint64_t mseTotal[RGBA_COM + 1] = { 0, 0, 0, 0, 0};
+    for (int i = R_COM; i < RGBA_COM; i++) {
+        int32_t* mse = mseIn[i];
+        for (int j = 0; j < blockNum; j++) {
+            mseTotal[i] += *mse;
+            if(i != A_COM) mseTotal[RGBA_COM] += *mse;
+            mse++;
+        }
+    }
+    for (int i = R_COM; i < RGBA_COM; i++) {
+        if (mseTotal[i] == 0) {
+        	psnr[i] = MAX_PSNR;
+        	continue;
+        }
+        double mseRgb = (double)mseTotal[i] / (blockNum * blockXYZ);
+        psnr[i] = LOG_BASE * log((double)(MAX_VALUE * MAX_VALUE) / mseRgb) / log(LOG_BASE);
+    }
+    if (mseTotal[RGBA_COM] == 0) {
+        psnr[RGBA_COM] = MAX_PSNR;
+    }
+    else {
+        double mseRgb = (double)mseTotal[RGBA_COM] / (blockNum * blockXYZ * (RGBA_COM - 1));
+        psnr[RGBA_COM] = LOG_BASE * log((double)(MAX_VALUE * MAX_VALUE) / mseRgb) / log(LOG_BASE);
+    }
+    printf("astc psnr r%f g%f b%f a%f rgb%f\n", 
+        psnr[R_COM], psnr[G_COM], psnr[B_COM], psnr[A_COM],
+        psnr[RGBA_COM]);
+    return (psnr[R_COM] > threshold[R_COM]) && (psnr[G_COM] > threshold[G_COM])
+        && (psnr[B_COM] > threshold[B_COM]) && (psnr[A_COM] > threshold[A_COM])
+        && (psnr[RGBA_COM] > threshold[RGBA_COM]);
+}
+#endif
+
 /**
  * @brief The main entry point.
  *
@@ -1584,12 +1639,25 @@ int main(
 
 		compression_workload work;
 		work.context = codec_context;
+		image_uncomp_in->dim_stride = image_uncomp_in->dim_x;
 		work.image = image_uncomp_in;
 		work.swizzle = cli_config.swz_encode;
 		work.data_out = buffer;
 		work.data_len = buffer_size;
 		work.error = ASTCENC_SUCCESS;
-
+#if QUALITY_CONTROL
+		work.calQualityEnable = true;
+		work.mse[R_COM] = work.mse[G_COM] = work.mse[B_COM] = work.mse[A_COM] = nullptr;
+		if (work.calQualityEnable) {
+		for (int i = R_COM; i < RGBA_COM; i++) {
+				work.mse[i] = (int32_t*)calloc(blocks_x * blocks_y, sizeof(int32_t));
+				if (!work.mse[i]) {
+					printf("quality control calloc failed");
+					return -1;
+				}
+			}
+		}
+#endif
 		// Only launch worker threads for multi-threaded use - it makes basic
 		// single-threaded profiling and debugging a little less convoluted
 		if (cli_config.thread_count > 1)
@@ -1600,7 +1668,11 @@ int main(
 		{
 			work.error = astcenc_compress_image(
 			    work.context, work.image, &work.swizzle,
-			    work.data_out, work.data_len, 0);
+			    work.data_out, work.data_len,
+#if QUALITY_CONTROL
+			    work.calQualityEnable, work.mse,
+#endif
+			    0);
 		}
 
 		if (work.error != ASTCENC_SUCCESS)
@@ -1608,7 +1680,18 @@ int main(
 			printf("ERROR: Codec compress failed: %s\n", astcenc_get_error_string(work.error));
 			return 1;
 		}
-
+#if QUALITY_CONTROL
+		if (work.calQualityEnable && !CheckQuality(work.mse, blocks_x * blocks_y, config.block_x * config.block_y)) {
+		    work.error = ASTCENC_ERR_BAD_QUALITY_CHECK;
+		}
+		if (work.calQualityEnable) {
+			for (int i = R_COM; i < RGBA_COM; i++) {
+				if (work.mse[i]) {
+					free(work.mse[i]);
+				}
+			}
+		}
+#endif
 		image_comp.block_x = config.block_x;
 		image_comp.block_y = config.block_y;
 		image_comp.block_z = config.block_z;

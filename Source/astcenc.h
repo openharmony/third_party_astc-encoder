@@ -162,6 +162,17 @@
 #include <cstddef>
 #include <cstdint>
 
+#define QUALITY_CONTROL (1)
+#if QUALITY_CONTROL
+enum ComponentRGBA {
+	R_COM = 0,
+	G_COM,
+	B_COM,
+	A_COM,
+	RGBA_COM
+};
+#endif
+
 #if defined(ASTCENC_DYNAMIC_LIBRARY)
 	#if defined(_MSC_VER)
 		#define ASTCENC_PUBLIC extern "C" __declspec(dllexport)
@@ -212,6 +223,9 @@ enum astcenc_error {
 #if defined(ASTCENC_DIAGNOSTICS)
 	/** @brief The call failed due to an issue with diagnostic tracing. */
 	ASTCENC_ERR_DTRACE_FAILURE,
+#endif
+#if QUALITY_CONTROL
+	ASTCENC_ERR_BAD_QUALITY_CHECK
 #endif
 };
 
@@ -541,6 +555,9 @@ struct astcenc_config
  */
 struct astcenc_image
 {
+	/** @brief The stride dimension of the image, in texels. */
+	unsigned int dim_stride;
+
 	/** @brief The X dimension of the image, in texels. */
 	unsigned int dim_x;
 
@@ -707,6 +724,10 @@ ASTCENC_PUBLIC astcenc_error astcenc_compress_image(
 	const astcenc_swizzle* swizzle,
 	uint8_t* data_out,
 	size_t data_len,
+#if QUALITY_CONTROL
+	bool calQualityEnable,
+	int32_t *mse[RGBA_COM],
+#endif
 	unsigned int thread_index);
 
 /**
