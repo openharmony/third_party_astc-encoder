@@ -1351,6 +1351,9 @@ struct avg_args
 	pixel_region_args arg;
 
 	// The above has a reference to the image altread?
+	/** @brief The image Stride dimensions. */
+	unsigned int img_size_stride;
+
 	/** @brief The image X dimensions. */
 	unsigned int img_size_x;
 
@@ -2284,7 +2287,14 @@ void compress_block(
 	const astcenc_context& ctx,
 	const image_block& blk,
 	physical_compressed_block& pcb,
-	compression_working_buffers& tmpbuf);
+#if QUALITY_CONTROL
+	compression_working_buffers& tmpbuf,
+	bool calQualityEnable,
+	int32_t *mseBlock[RGBA_COM]
+#else
+    compression_working_buffers& tmpbuf
+#endif
+	);
 
 /**
  * @brief Decompress a symbolic block in to an image block.

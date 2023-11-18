@@ -182,10 +182,10 @@ static void compute_pixel_region_variance(
 					int x_src = (x - 1) + offset_x - kernel_radius_xy;
 					x_src = astc::clamp(x_src, 0, static_cast<int>(img->dim_x - 1));
 
-					data[0] = data8[(4 * img->dim_x * y_src) + (4 * x_src    )];
-					data[1] = data8[(4 * img->dim_x * y_src) + (4 * x_src + 1)];
-					data[2] = data8[(4 * img->dim_x * y_src) + (4 * x_src + 2)];
-					data[3] = data8[(4 * img->dim_x * y_src) + (4 * x_src + 3)];
+					data[0] = data8[(4 * img->dim_stride * y_src) + (4 * x_src    )];
+					data[1] = data8[(4 * img->dim_stride * y_src) + (4 * x_src + 1)];
+					data[2] = data8[(4 * img->dim_stride * y_src) + (4 * x_src + 2)];
+					data[3] = data8[(4 * img->dim_stride * y_src) + (4 * x_src + 3)];
 
 					uint8_t r = data[swz.r];
 					uint8_t g = data[swz.g];
