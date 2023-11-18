@@ -280,7 +280,7 @@ void fetch_image_block_fast_ldr(
 
 	unsigned int xsize = img.dim_x;
 	unsigned int ysize = img.dim_y;
-
+	unsigned int stride = img.dim_stride;
 	blk.xpos = xpos;
 	blk.ypos = ypos;
 	blk.zpos = zpos;
@@ -300,7 +300,7 @@ void fetch_image_block_fast_ldr(
 		{
 			unsigned int xi = astc::min(x, xsize - 1);
 
-			vint4 datavi = vint4(plane + (4 * xsize * yi) + (4 * xi));
+			vint4 datavi = vint4(plane + (4 * stride * yi) + (4 * xi));
 			vfloat4 datav = int_to_float(datavi) * (65535.0f / 255.0f);
 
 			// Compute block metadata

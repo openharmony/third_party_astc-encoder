@@ -1164,7 +1164,14 @@ void compress_block(
 	const astcenc_context& ctx,
 	const image_block& blk,
 	physical_compressed_block& pcb,
-	compression_working_buffers& tmpbuf)
+#if QUALITY_CONTROL
+	compression_working_buffers& tmpbuf,
+	bool calQualityEnable,
+	int32_t *mseBlock[RGBA_COM]
+#else
+	compression_working_buffers& tmpbuf
+#endif
+	)
 {
 	astcenc_profile decode_mode = ctx.config.profile;
 	symbolic_compressed_block scb;
@@ -1230,6 +1237,11 @@ void compress_block(
 		trace_add_data("exit", "quality hit");
 
 		symbolic_to_physical(bsd, scb, pcb);
+#if QUALITY_CONTROL
+	if (calQualityEnable) {
+		*mseBlock[R_COM] = *mseBlock[G_COM] = *mseBlock[B_COM] = *mseBlock[A_COM];
+	}
+#endif
 		return;
 	}
 
@@ -1416,6 +1428,23 @@ END_OF_TESTS:
 
 	// Compress to a physical block
 	symbolic_to_physical(bsd, scb, pcb);
+#if QUALITY_CONTROL
+	if (calQualityEnable) {
+		image_block decBlk = blk;
+		decompress_symbolic_block(ctx.config.profile, bsd, blk.xpos, blk.ypos, blk.zpos, scb, decBlk);
+		vint4 colorSumDiff = vint4::zero();
+		for (size_t ii = 0; ii < bsd.texel_count; ii++) {
+			vint4 colorRef = float_to_int_rtn(blk.texel(ii) * 255.0f / 65535.0f);
+			vint4 colorTest = float_to_int_rtn(min(decBlk.texel(ii), 1.0f) * 255.0f);
+			vint4 colorDiff = colorRef - colorTest;
+			colorSumDiff += colorDiff * colorDiff;
+		}
+		*mseBlock[R_COM] = colorSumDiff.lane<0>();
+		*mseBlock[G_COM] = colorSumDiff.lane<1>();
+		*mseBlock[B_COM] = colorSumDiff.lane<2>();
+		*mseBlock[A_COM] = colorSumDiff.lane<3>();
+    }
+#endif
 }
 
 #endif
