@@ -2072,6 +2072,7 @@ static void quantize_hdr_rgb_alpha(
 
 /* See header for documentation. */
 uint8_t pack_color_endpoints(
+	QualityProfile privateProfile,
 	vfloat4 color0,
 	vfloat4 color1,
 	vfloat4 rgbs_color,
@@ -2114,7 +2115,7 @@ uint8_t pack_color_endpoints(
 		break;
 
 	case FMT_RGBA:
-		if (quant_level <= 18)
+		if ((privateProfile == HIGH_QUALITY_PROFILE) && (quant_level <= 18)) // only full quality profile to try
 		{
 			if (try_quantize_rgba_delta_blue_contract(color0, color1, output, quant_level))
 			{

@@ -720,7 +720,7 @@ astcenc_error astcenc_context_alloc(
 
 	ctx->bsd = aligned_malloc<block_size_descriptor>(sizeof(block_size_descriptor), ASTCENC_VECALIGN);
 	bool can_omit_modes = config.flags & ASTCENC_FLG_SELF_DECOMPRESS_ONLY;
-	init_block_size_descriptor(config.block_x, config.block_y, config.block_z,
+	init_block_size_descriptor(ctx->config.privateProfile, config.block_x, config.block_y, config.block_z,
 	                           can_omit_modes,
 	                           config.tune_partition_count_limit,
 	                           static_cast<float>(config.tune_block_mode_limit) / 100.0f,

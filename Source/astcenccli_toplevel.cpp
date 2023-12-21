@@ -655,7 +655,7 @@ static int edit_astcenc_config(
 ) {
 
 	int argidx = (operation & ASTCENC_STAGE_COMPRESS) ? 6 : 4;
-
+	config.privateProfile = HIGH_QUALITY_PROFILE;
 	while (argidx < argc)
 	{
 		if (!strcmp(argv[argidx], "-silent"))
@@ -1023,6 +1023,11 @@ static int edit_astcenc_config(
 			config.trace_file_path = argv[argidx - 1];
 		}
 #endif
+		else if (!strcmp(argv[argidx], "-privateProfile"))
+		{
+			argidx += 2; // skip 2 chatacters to get next parameter
+			config.privateProfile = static_cast<QualityProfile>(atoi(argv[argidx - 1]));
+		}
 		else // check others as well
 		{
 			printf("ERROR: Argument '%s' not recognized\n", argv[argidx]);
