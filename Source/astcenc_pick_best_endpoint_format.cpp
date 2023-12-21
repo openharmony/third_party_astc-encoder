@@ -686,6 +686,7 @@ static void compute_color_error_for_every_integer_count_and_quant_level(
  * @return The output error for the best pairing.
  */
 static float one_partition_find_best_combination_for_bitcount(
+	QualityProfile privateProfile,
 	const float best_combined_error[21][4],
 	const int best_combined_format[21][4],
 	int bits_available,
@@ -697,6 +698,10 @@ static float one_partition_find_best_combination_for_bitcount(
 
 	for (int integer_count = 1; integer_count <= 4;  integer_count++)
 	{
+		if (privateProfile == HIGH_SPEED_PROFILE)
+		{
+			integer_count = 4; // constant 4 bit count for HIGH_SPEED_PROFILE mode
+		}
 		// Compute the quantization level for a given number of integers and a given number of bits
 		int quant_level = quant_mode_table[integer_count][bits_available];
 
@@ -717,11 +722,18 @@ static float one_partition_find_best_combination_for_bitcount(
 	int ql = quant_mode_table[best_integer_count + 1][bits_available];
 
 	best_quant_level = static_cast<quant_method>(ql);
-	best_format = FMT_LUMINANCE;
-
-	if (ql >= QUANT_6)
+	if (privateProfile == HIGH_SPEED_PROFILE) // keep openSource code style
 	{
-		best_format = best_combined_format[ql][best_integer_count];
+		best_format = FMT_RGBA;
+	}
+	else
+	{
+		best_format = FMT_LUMINANCE;
+
+		if (ql >= QUANT_6)
+		{
+			best_format = best_combined_format[ql][best_integer_count];
+		}
 	}
 
 	return best_integer_count_error;
@@ -1104,6 +1116,7 @@ static float four_partitions_find_best_combination_for_bitcount(
 
 /* See header for documentation. */
 unsigned int compute_ideal_endpoint_formats(
+	QualityProfile privateProfile,
 	const partition_info& pi,
 	const image_block& blk,
 	const endpoints& ep,
@@ -1182,6 +1195,7 @@ unsigned int compute_ideal_endpoint_formats(
 			}
 
 			float error_of_best = one_partition_find_best_combination_for_bitcount(
+			    privateProfile,
 			    best_error[0], format_of_choice[0], qwt_bitcounts[i],
 			    best_quant_levels[i], best_ep_formats[i][0]);
 

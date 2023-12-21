@@ -816,6 +816,7 @@ static void construct_dt_entry_2d(
  * @param[out] bsd              The block size descriptor to populate.
  */
 static void construct_block_size_descriptor_2d(
+	QualityProfile privateProfile,
 	unsigned int x_texels,
 	unsigned int y_texels,
 	bool can_omit_modes,
@@ -842,7 +843,7 @@ static void construct_block_size_descriptor_2d(
 	// Gather all the decimation grids that can be used with the current block
 #if !defined(ASTCENC_DECOMPRESS_ONLY)
 	const float *percentiles = get_2d_percentile_table(x_texels, y_texels);
-	float always_cutoff = 0.0f;
+	float always_cutoff = (privateProfile != HIGH_QUALITY_PROFILE) ? 1.0f : 0.0f;
 #else
 	// Unused in decompress-only builds
 	(void)can_omit_modes;
@@ -878,7 +879,10 @@ static void construct_block_size_descriptor_2d(
 			{
 				continue;
 			}
-
+			if ((privateProfile == HIGH_SPEED_PROFILE) && (i != HIGH_SPEED_PROFILE_BLOCK_MODE))
+			{
+				continue;
+			}
 			// Decode parameters
 			unsigned int x_weights;
 			unsigned int y_weights;
@@ -941,6 +945,10 @@ static void construct_block_size_descriptor_2d(
 			if (decimation_mode < 0)
 			{
 				construct_dt_entry_2d(x_texels, y_texels, x_weights, y_weights, bsd, *wb, packed_dm_idx);
+				if (privateProfile == HIGH_SPEED_PROFILE)
+				{
+					bsd.decimation_modes[packed_dm_idx].maxprec_1plane = 4; // Speed optimization: max prec num is limited to 4
+				}
 				decimation_mode_index[y_weights * 16 + x_weights] = packed_dm_idx;
 				decimation_mode = packed_dm_idx;
 
@@ -1189,6 +1197,7 @@ static void construct_block_size_descriptor_3d(
 
 /* See header for documentation. */
 void init_block_size_descriptor(
+	QualityProfile privateProfile,
 	unsigned int x_texels,
 	unsigned int y_texels,
 	unsigned int z_texels,
@@ -1203,7 +1212,7 @@ void init_block_size_descriptor(
 	}
 	else
 	{
-		construct_block_size_descriptor_2d(x_texels, y_texels, can_omit_modes, mode_cutoff, bsd);
+		construct_block_size_descriptor_2d(privateProfile, x_texels, y_texels, can_omit_modes, mode_cutoff, bsd);
 	}
 
 	init_partition_tables(bsd, can_omit_modes, partition_count_cutoff);

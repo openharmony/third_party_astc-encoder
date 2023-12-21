@@ -161,6 +161,19 @@
 
 #include <cstddef>
 #include <cstdint>
+#if defined(__aarch64__)
+	#define ASTCENC_NEON 1
+#else
+	#define ASTCENC_NEON 0
+#endif
+
+enum QualityProfile {
+	HIGH_QUALITY_PROFILE = 0, // default profile
+	HIGH_SPEED_PROFILE
+};
+
+static const int HIGH_SPEED_PROFILE_BLOCK_MODE = 67; // keep openSource type, example
+static const int BYTE_MASK = 0xFF;
 
 #define QUALITY_CONTROL (1)
 #if QUALITY_CONTROL
@@ -545,6 +558,7 @@ struct astcenc_config
 	 */
 	const char* trace_file_path;
 #endif
+	QualityProfile privateProfile;
 };
 
 /**
