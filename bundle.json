@@ -44,7 +44,7 @@
                         "stb_image.h",
                         "tinyexr.h"
                       ],
-                      "header_base": "//arkcompiler/third_party/astc-encoder/Source"
+                      "header_base": "//third_party/astc-encoder/Source"
                     }
                 }
             ],
