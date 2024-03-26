@@ -24,7 +24,30 @@
         },
         "build": {
             "sub_component": ["//third_party/astc-encoder:astc_encoder_shared"],
-            "inner_kits": [],
+            "inner_kits": [
+                {
+                    "name": "//third_party/astc-encoder:astc_encoder_shared",
+                    "header": {
+                      "header_files": [
+                        "astcenc_diagnostic_trace.h",
+                        "astcenc_internal.h",
+                        "astcenc_mathlib.h",
+                        "astcenc_vecmathlib_avx2_8.h",
+                        "astcenc_vecmathlib_common_4.h",
+                        "astcenc_vecmathlib_neon_4.h",
+                        "astcenc_vecmathlib_none_4.h",
+                        "astcenc_vecmathlib_sse_4.h",
+                        "astcenc_vecmathlib.h",
+                        "astcenc.h",
+                        "astcencci_internal.h",
+                        "stb_image_write.h",
+                        "stb_image.h",
+                        "tinyexr.h"
+                      ],
+                      "header_base": "//third_party/astc-encoder/Source"
+                    }
+                }
+            ],
             "test": []
         }
     }
