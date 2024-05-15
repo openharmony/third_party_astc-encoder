@@ -245,7 +245,6 @@ def main():
     Returns:
         int: The process return code.
     """
-
     absXMin = 0
     absXMax = 80
     absXLimits = (absXMin, absXMax)
@@ -254,101 +253,147 @@ def main():
     relXMax = None
     relXLimits = (relXMin, relXMax)
 
+    last1x = "1.7"
+    last2x = "2.5"
+    last3x = "3.7"
+    prev4x = "4.3"
+    last4x = "4.4"
+    lastMain = "main"
+
     charts = [
         # --------------------------------------------------------
         # Latest in stable series charts
         [
             # Relative scores
             ["thorough", "medium", "fast"],
-            ["ref-2.5-avx2", "ref-3.7-avx2"],
+            [f"ref-{last2x}-avx2", f"ref-{last3x}-avx2", f"ref-{last4x}-avx2"],
             ["4x4", "6x6", "8x8"],
             True,
-            "ref-1.7",
+            f"ref-{last1x}",
             None,
-            "relative-stable-series.png",
+            "results-relative-stable-series.png",
             (None, None)
         ], [
             # Absolute scores
             ["thorough", "medium", "fast"],
-            ["ref-1.7", "ref-2.5-avx2", "ref-3.7-avx2"],
+            [f"ref-{last1x}", f"ref-{last2x}-avx2", f"ref-{last3x}-avx2", f"ref-{last4x}-avx2"],
             ["4x4", "6x6", "8x8"],
             False,
             None,
             None,
-            "absolute-stable-series.png",
+            "results-absolute-stable-series.png",
             (absXLimits, None)
         ],
         # --------------------------------------------------------
-        # Latest 2.x vs 1.7 release charts
+        # Latest 2.x vs 1.x release charts
         [
             # Relative scores
             ["thorough", "medium", "fast"],
-            ["ref-2.5-avx2"],
+            [f"ref-{last2x}-avx2"],
             ["4x4", "6x6", "8x8"],
             True,
-            "ref-1.7",
+            f"ref-{last1x}",
             None,
-            "relative-2.x-vs-1.x.png",
+            "results-relative-2.x-vs-1.x.png",
             (None, None)
         ],
         # --------------------------------------------------------
-        # Latest 3.x vs 1.7 release charts
+        # Latest 3.x vs 1.x release charts
         [
             # Relative scores
             ["thorough", "medium", "fast"],
-            ["ref-3.7-avx2"],
+            [f"ref-{last3x}-avx2"],
             ["4x4", "6x6", "8x8"],
             True,
-            "ref-1.7",
+            f"ref-{last1x}",
             None,
-            "relative-3.x-vs-1.x.png",
+            "results-relative-3.x-vs-1.x.png",
             (None, None)
         ],
         # --------------------------------------------------------
-        # Latest 3.x vs 2.5 release charts
+        # Latest 4.x vs 1.x release charts
         [
             # Relative scores
-            ["thorough", "medium", "fast", "fastest"],
-            ["ref-3.7-avx2"],
+            ["thorough", "medium", "fast"],
+            [f"ref-{last4x}-avx2"],
             ["4x4", "6x6", "8x8"],
             True,
-            "ref-2.5-avx2",
+            f"ref-{last1x}",
             None,
-            "relative-3.x-vs-2.x.png",
+            "results-relative-4.x-vs-1.x.png",
             (None, None)
         ],
         # --------------------------------------------------------
-        # Latest 3.x vs 3.0 release charts
+        # Latest 3.x vs 2.x release charts
         [
             # Relative scores
             ["thorough", "medium", "fast", "fastest"],
-            ["ref-3.7-avx2"],
+            [f"ref-{last3x}-avx2"],
             ["4x4", "6x6", "8x8"],
             True,
-            "ref-3.6-avx2",
+            f"ref-{last2x}-avx2",
             None,
-            "relative-3.x-vs-3.x.png",
+            "results-relative-3.x-vs-2.x.png",
+            (None, None)
+        ],
+        # --------------------------------------------------------
+        # Latest 4.x vs 3.x release charts
+        [
+            # Relative scores
+            ["thorough", "medium", "fast", "fastest"],
+            [f"ref-{last4x}-avx2"],
+            ["4x4", "6x6", "8x8"],
+            True,
+            f"ref-{last3x}-avx2",
+            None,
+            "results-relative-4.x-vs-3.x.png",
             (relXLimits, None),
         ], [
             # Relative ISAs of latest
             ["thorough", "medium", "fast", "fastest"],
-            ["ref-3.7-sse4.1", "ref-3.7-avx2"],
+            [f"ref-{last4x}-sse4.1", f"ref-{last4x}-avx2"],
             ["4x4", "6x6", "8x8"],
             True,
-            "ref-3.7-sse2",
+            f"ref-{last4x}-sse2",
             None,
-            "relative-3.x-isa.png",
+            "results-relative-4.x-isa.png",
             (None, None)
         ], [
             # Relative quality of latest
             ["medium", "fast", "fastest"],
-            ["ref-3.7-avx2"],
+            [f"ref-{last4x}-avx2"],
             ["4x4", "6x6", "8x8"],
             True,
             None,
             "thorough",
-            "relative-3.x-quality.png",
+            "results-relative-4.x-quality.png",
             (None, None)
+        ],
+        # --------------------------------------------------------
+        # Latest 4.x vs previous 4.x release charts
+        [
+            # Relative scores
+            ["thorough", "medium", "fast", "fastest"],
+            [f"ref-{last4x}-avx2"],
+            ["4x4", "6x6", "8x8"],
+            True,
+            f"ref-{prev4x}-avx2",
+            None,
+            "results-relative-4.x-vs-4.x.png",
+            (relXLimits, None)
+        ],
+        # --------------------------------------------------------
+        # Latest 4.x vs previous 4.x release charts
+        [
+            # Relative scores
+            ["thorough", "medium", "fast", "fastest"],
+            [f"ref-{lastMain}-avx2"],
+            ["4x4", "6x6", "8x8"],
+            True,
+            f"ref-{last4x}-avx2",
+            None,
+            "results-relative-main-vs-4.x.png",
+            (relXLimits, None)
         ]
     ]
 

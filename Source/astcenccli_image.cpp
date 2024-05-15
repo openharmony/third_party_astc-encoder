@@ -36,12 +36,12 @@ astcenc_image *alloc_image(
 	img->dim_y = dim_y;
 	img->dim_z = dim_z;
 
+	void** data = new void*[dim_z];
+	img->data = data;
+
 	if (bitness == 8)
 	{
-		void** data = new void*[dim_z];
 		img->data_type = ASTCENC_TYPE_U8;
-		img->data = data;
-
 		for (unsigned int z = 0; z < dim_z; z++)
 		{
 			data[z] = new uint8_t[dim_x * dim_y * 4];
@@ -49,10 +49,7 @@ astcenc_image *alloc_image(
 	}
 	else if (bitness == 16)
 	{
-		void** data = new void*[dim_z];
 		img->data_type = ASTCENC_TYPE_F16;
-		img->data = data;
-
 		for (unsigned int z = 0; z < dim_z; z++)
 		{
 			data[z] = new uint16_t[dim_x * dim_y * 4];
@@ -61,10 +58,7 @@ astcenc_image *alloc_image(
 	else // if (bitness == 32)
 	{
 		assert(bitness == 32);
-		void** data = new void*[dim_z];
 		img->data_type = ASTCENC_TYPE_F32;
-		img->data = data;
-
 		for (unsigned int z = 0; z < dim_z; z++)
 		{
 			data[z] = new float[dim_x * dim_y * 4];
@@ -239,15 +233,18 @@ astcenc_image* astc_img_from_unorm8x4_array(
 /* See header for documentation. */
 float* floatx4_array_from_astc_img(
 	const astcenc_image* img,
-	bool y_flip
+	bool y_flip,
+	unsigned int z_index
 ) {
 	unsigned int dim_x = img->dim_x;
 	unsigned int dim_y = img->dim_y;
 	float *buf = new float[4 * dim_x * dim_y];
 
+	assert(z_index < img->dim_z);
+
 	if (img->data_type == ASTCENC_TYPE_U8)
 	{
-		uint8_t* data8 = static_cast<uint8_t*>(img->data[0]);
+		uint8_t* data8 = static_cast<uint8_t*>(img->data[z_index]);
 		for (unsigned int y = 0; y < dim_y; y++)
 		{
 			unsigned int ymod = y_flip ? dim_y - y - 1 : y;
@@ -264,7 +261,7 @@ float* floatx4_array_from_astc_img(
 	}
 	else if (img->data_type == ASTCENC_TYPE_F16)
 	{
-		uint16_t* data16 = static_cast<uint16_t*>(img->data[0]);
+		uint16_t* data16 = static_cast<uint16_t*>(img->data[z_index]);
 		for (unsigned int y = 0; y < dim_y; y++)
 		{
 			unsigned int ymod = y_flip ? dim_y - y - 1 : y;
@@ -287,7 +284,7 @@ float* floatx4_array_from_astc_img(
 	else // if (img->data_type == ASTCENC_TYPE_F32)
 	{
 		assert(img->data_type == ASTCENC_TYPE_F32);
-		float* data32 = static_cast<float*>(img->data[0]);
+		float* data32 = static_cast<float*>(img->data[z_index]);
 		for (unsigned int y = 0; y < dim_y; y++)
 		{
 			unsigned int ymod = y_flip ? dim_y - y - 1 : y;

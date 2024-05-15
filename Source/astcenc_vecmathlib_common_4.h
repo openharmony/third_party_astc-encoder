@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // ----------------------------------------------------------------------------
-// Copyright 2020-2021 Arm Limited
+// Copyright 2020-2024 Arm Limited
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not
 // use this file except in compliance with the License. You may obtain a copy
@@ -362,13 +362,41 @@ static inline int popcount(uint64_t v)
 #endif
 
 /**
+ * @brief Apply signed bit transfer.
+ *
+ * @param input0   The first encoded endpoint.
+ * @param input1   The second encoded endpoint.
+ */
+static ASTCENC_SIMD_INLINE void bit_transfer_signed(
+	vint4& input0,
+	vint4& input1
+) {
+	input1 = lsr<1>(input1) | (input0 & 0x80);
+	input0 = lsr<1>(input0) & 0x3F;
+
+	vmask4 mask = (input0 & 0x20) != vint4::zero();
+	input0 = select(input0, input0 - 0x40, mask);
+}
+
+/**
  * @brief Debug function to print a vector of ints.
  */
 ASTCENC_SIMD_INLINE void print(vint4 a)
 {
-	alignas(16) int v[4];
+	ASTCENC_ALIGNAS int v[4];
 	storea(a, v);
 	printf("v4_i32:\n  %8d %8d %8d %8d\n",
+	       v[0], v[1], v[2], v[3]);
+}
+
+/**
+ * @brief Debug function to print a vector of ints.
+ */
+ASTCENC_SIMD_INLINE void printx(vint4 a)
+{
+	ASTCENC_ALIGNAS int v[4];
+	storea(a, v);
+	printf("v4_i32:\n  %08x %08x %08x %08x\n",
 	       v[0], v[1], v[2], v[3]);
 }
 
@@ -377,7 +405,7 @@ ASTCENC_SIMD_INLINE void print(vint4 a)
  */
 ASTCENC_SIMD_INLINE void print(vfloat4 a)
 {
-	alignas(16) float v[4];
+	ASTCENC_ALIGNAS float v[4];
 	storea(a, v);
 	printf("v4_f32:\n  %0.4f %0.4f %0.4f %0.4f\n",
 	       static_cast<double>(v[0]), static_cast<double>(v[1]),
