@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // ----------------------------------------------------------------------------
-// Copyright 2011-2022 Arm Limited
+// Copyright 2011-2024 Arm Limited
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not
 // use this file except in compliance with the License. You may obtain a copy
@@ -25,6 +25,76 @@
 
 #include "astcenc_internal.h"
 #include "astcenc_vecmathlib.h"
+
+/**
+ * @brief Compute the infilled weight for N texel indices in a decimated grid.
+ *
+ * @param di        The weight grid decimation to use.
+ * @param weights   The decimated weight values to use.
+ * @param index     The first texel index to interpolate.
+ *
+ * @return The interpolated weight for the given set of SIMD_WIDTH texels.
+ */
+static vfloat bilinear_infill_vla(
+	const decimation_info& di,
+	const float* weights,
+	unsigned int index
+) {
+	// Load the bilinear filter texel weight indexes in the decimated grid
+	vint weight_idx0 = vint(di.texel_weights_tr[0] + index);
+	vint weight_idx1 = vint(di.texel_weights_tr[1] + index);
+	vint weight_idx2 = vint(di.texel_weights_tr[2] + index);
+	vint weight_idx3 = vint(di.texel_weights_tr[3] + index);
+
+	// Load the bilinear filter weights from the decimated grid
+	vfloat weight_val0 = gatherf(weights, weight_idx0);
+	vfloat weight_val1 = gatherf(weights, weight_idx1);
+	vfloat weight_val2 = gatherf(weights, weight_idx2);
+	vfloat weight_val3 = gatherf(weights, weight_idx3);
+
+	// Load the weight contribution factors for each decimated weight
+	vfloat tex_weight_float0 = loada(di.texel_weight_contribs_float_tr[0] + index);
+	vfloat tex_weight_float1 = loada(di.texel_weight_contribs_float_tr[1] + index);
+	vfloat tex_weight_float2 = loada(di.texel_weight_contribs_float_tr[2] + index);
+	vfloat tex_weight_float3 = loada(di.texel_weight_contribs_float_tr[3] + index);
+
+	// Compute the bilinear interpolation to generate the per-texel weight
+	return (weight_val0 * tex_weight_float0 + weight_val1 * tex_weight_float1) +
+	       (weight_val2 * tex_weight_float2 + weight_val3 * tex_weight_float3);
+}
+
+/**
+ * @brief Compute the infilled weight for N texel indices in a decimated grid.
+ *
+ * This is specialized version which computes only two weights per texel for
+ * encodings that are only decimated in a single axis.
+ *
+ * @param di        The weight grid decimation to use.
+ * @param weights   The decimated weight values to use.
+ * @param index     The first texel index to interpolate.
+ *
+ * @return The interpolated weight for the given set of SIMD_WIDTH texels.
+ */
+static vfloat bilinear_infill_vla_2(
+	const decimation_info& di,
+	const float* weights,
+	unsigned int index
+) {
+	// Load the bilinear filter texel weight indexes in the decimated grid
+	vint weight_idx0 = vint(di.texel_weights_tr[0] + index);
+	vint weight_idx1 = vint(di.texel_weights_tr[1] + index);
+
+	// Load the bilinear filter weights from the decimated grid
+	vfloat weight_val0 = gatherf(weights, weight_idx0);
+	vfloat weight_val1 = gatherf(weights, weight_idx1);
+
+	// Load the weight contribution factors for each decimated weight
+	vfloat tex_weight_float0 = loada(di.texel_weight_contribs_float_tr[0] + index);
+	vfloat tex_weight_float1 = loada(di.texel_weight_contribs_float_tr[1] + index);
+
+	// Compute the bilinear interpolation to generate the per-texel weight
+	return (weight_val0 * tex_weight_float0 + weight_val1 * tex_weight_float1);
+}
 
 /**
  * @brief Compute the ideal endpoints and weights for 1 color component.
@@ -90,7 +160,7 @@ static void compute_ideal_colors_and_weights_1_comp(
 			highvalue = astc::max(value, highvalue);
 		}
 
-		if (highvalue < lowvalue)
+		if (highvalue <= lowvalue)
 		{
 			lowvalue = 0.0f;
 			highvalue = 1e-7f;
@@ -198,13 +268,13 @@ static void compute_ideal_colors_and_weights_2_comp(
 
 	for (unsigned int i = 0; i < partition_count; i++)
 	{
-		vfloat4 dir = pms[i].dir.swz<0, 1>();
+		vfloat4 dir = pms[i].dir;
 		if (hadd_s(dir) < 0.0f)
 		{
 			dir = vfloat4::zero() - dir;
 		}
 
-		line2 line { pms[i].avg.swz<0, 1>(), normalize_safe(dir, unit2()) };
+		line2 line { pms[i].avg, normalize_safe(dir, unit2()) };
 		float lowparam { 1e10f };
 		float highparam { -1e10f };
 
@@ -222,7 +292,7 @@ static void compute_ideal_colors_and_weights_2_comp(
 
 		// It is possible for a uniform-color partition to produce length=0;
 		// this causes NaN issues so set to small value to avoid this problem
-		if (highparam < lowparam)
+		if (highparam <= lowparam)
 		{
 			lowparam = 0.0f;
 			highparam = 1e-7f;
@@ -371,7 +441,7 @@ static void compute_ideal_colors_and_weights_3_comp(
 
 		// It is possible for a uniform-color partition to produce length=0;
 		// this causes NaN issues so set to small value to avoid this problem
-		if (highparam < lowparam)
+		if (highparam <= lowparam)
 		{
 			lowparam = 0.0f;
 			highparam = 1e-7f;
@@ -493,7 +563,7 @@ static void compute_ideal_colors_and_weights_4_comp(
 
 		// It is possible for a uniform-color partition to produce length=0;
 		// this causes NaN issues so set to small value to avoid this problem
-		if (highparam < lowparam)
+		if (highparam <= lowparam)
 		{
 			lowparam = 0.0f;
 			highparam = 1e-7f;
@@ -621,8 +691,8 @@ float compute_error_of_weight_set_1plane(
 	const float* dec_weight_quant_uvalue
 ) {
 	vfloatacc error_summav = vfloatacc::zero();
-	float error_summa = 0.0f;
 	unsigned int texel_count = di.texel_count;
+	promise(texel_count > 0);
 
 	// Process SIMD-width chunks, safe to over-fetch - the extra space is zero initialized
 	if (di.max_texel_weight_count > 2)
@@ -675,7 +745,7 @@ float compute_error_of_weight_set_1plane(
 	}
 
 	// Resolve the final scalar accumulator sum
-	return error_summa = hadd_s(error_summav);
+	return hadd_s(error_summav);
 }
 
 /* See header for documentation. */
@@ -688,6 +758,7 @@ float compute_error_of_weight_set_2planes(
 ) {
 	vfloatacc error_summav = vfloatacc::zero();
 	unsigned int texel_count = di.texel_count;
+	promise(texel_count > 0);
 
 	// Process SIMD-width chunks, safe to over-fetch - the extra space is zero initialized
 	if (di.max_texel_weight_count > 2)
@@ -772,8 +843,7 @@ float compute_error_of_weight_set_2planes(
 
 /* See header for documentation. */
 void compute_ideal_weights_for_decimation(
-	const endpoints_and_weights& eai_in,
-	endpoints_and_weights& eai_out,
+	const endpoints_and_weights& ei,
 	const decimation_info& di,
 	float* dec_weight_ideal_value
 ) {
@@ -783,49 +853,31 @@ void compute_ideal_weights_for_decimation(
 	promise(texel_count > 0);
 	promise(weight_count > 0);
 
-	// This function includes a copy of the epw from eai_in to eai_out. We do it here because we
-	// want to load the data anyway, so we can avoid loading it from memory twice.
-	eai_out.ep = eai_in.ep;
-	eai_out.is_constant_weight_error_scale = eai_in.is_constant_weight_error_scale;
-
 	// Ensure that the end of the output arrays that are used for SIMD paths later are filled so we
 	// can safely run SIMD elsewhere without a loop tail. Note that this is always safe as weight
 	// arrays always contain space for 64 elements
 	unsigned int prev_weight_count_simd = round_down_to_simd_multiple_vla(weight_count - 1);
 	storea(vfloat::zero(), dec_weight_ideal_value + prev_weight_count_simd);
 
-	// If we have a 1:1 mapping just shortcut the computation - clone the weights into both the
-	// weight set and the output epw copy.
-
-	// Transfer enough to also copy zero initialized SIMD over-fetch region
-	unsigned int texel_count_simd = round_up_to_simd_multiple_vla(texel_count);
-	for (unsigned int i = 0; i < texel_count_simd; i += ASTCENC_SIMD_WIDTH)
-	{
-		vfloat weight(eai_in.weights + i);
-		vfloat weight_error_scale(eai_in.weight_error_scale + i);
-
-		storea(weight, eai_out.weights + i);
-		storea(weight_error_scale, eai_out.weight_error_scale + i);
-
-		// Direct 1:1 weight mapping, so clone weights directly
-		// TODO: Can we just avoid the copy for direct cases?
-		if (is_direct)
-		{
-			storea(weight, dec_weight_ideal_value + i);
-		}
-	}
-
+	// If we have a 1:1 mapping just shortcut the computation. Transfer enough to also copy the
+	// zero-initialized SIMD over-fetch region
 	if (is_direct)
 	{
+		for (unsigned int i = 0; i < texel_count; i += ASTCENC_SIMD_WIDTH)
+		{
+			vfloat weight(ei.weights + i);
+			storea(weight, dec_weight_ideal_value + i);
+		}
+
 		return;
 	}
 
 	// Otherwise compute an estimate and perform single refinement iteration
-	alignas(ASTCENC_VECALIGN) float infilled_weights[BLOCK_MAX_TEXELS];
+	ASTCENC_ALIGNAS float infilled_weights[BLOCK_MAX_TEXELS];
 
 	// Compute an initial average for each decimated weight
-	bool constant_wes = eai_in.is_constant_weight_error_scale;
-	vfloat weight_error_scale(eai_in.weight_error_scale[0]);
+	bool constant_wes = ei.is_constant_weight_error_scale;
+	vfloat weight_error_scale(ei.weight_error_scale[0]);
 
 	// This overshoots - this is OK as we initialize the array tails in the
 	// decimation table structures to safe values ...
@@ -842,24 +894,24 @@ void compute_ideal_weights_for_decimation(
 
 		for (unsigned int j = 0; j < max_texel_count; j++)
 		{
-			vint texel(di.weight_texel[j] + i);
-			vfloat weight = loada(di.weights_flt[j] + i);
+			vint texel(di.weight_texels_tr[j] + i);
+			vfloat weight = loada(di.weights_texel_contribs_tr[j] + i);
 
 			if (!constant_wes)
 			{
-				weight_error_scale = gatherf(eai_in.weight_error_scale, texel);
+				weight_error_scale = gatherf(ei.weight_error_scale, texel);
 			}
 
 			vfloat contrib_weight = weight * weight_error_scale;
 
 			weight_weight += contrib_weight;
-			initial_weight += gatherf(eai_in.weights, texel) * contrib_weight;
+			initial_weight += gatherf(ei.weights, texel) * contrib_weight;
 		}
 
 		storea(initial_weight / weight_weight, dec_weight_ideal_value + i);
 	}
 
-	// Populate the interpolated weight grid based on the initital average
+	// Populate the interpolated weight grid based on the initial average
 	// Process SIMD-width texel coordinates at at time while we can. Safe to
 	// over-process full SIMD vectors - the tail is zeroed.
 	if (di.max_texel_weight_count <= 2)
@@ -900,17 +952,17 @@ void compute_ideal_weights_for_decimation(
 
 		for (unsigned int j = 0; j < max_texel_count; j++)
 		{
-			vint texel(di.weight_texel[j] + i);
-			vfloat contrib_weight = loada(di.weights_flt[j] + i);
+			vint texel(di.weight_texels_tr[j] + i);
+			vfloat contrib_weight = loada(di.weights_texel_contribs_tr[j] + i);
 
 			if (!constant_wes)
 			{
- 				weight_error_scale = gatherf(eai_in.weight_error_scale, texel);
+ 				weight_error_scale = gatherf(ei.weight_error_scale, texel);
 			}
 
 			vfloat scale = weight_error_scale * contrib_weight;
 			vfloat old_weight = gatherf(infilled_weights, texel);
-			vfloat ideal_weight = gatherf(eai_in.weights, texel);
+			vfloat ideal_weight = gatherf(ei.weights, texel);
 
 			error_change0 += contrib_weight * scale;
 			error_change1 += (old_weight - ideal_weight) * scale;
@@ -919,7 +971,7 @@ void compute_ideal_weights_for_decimation(
 		vfloat step = (error_change1 * chd_scale) / error_change0;
 		step = clamp(-stepsize, stepsize, step);
 
-		// Update the weight; note this can store negative values.
+		// Update the weight; note this can store negative values
 		storea(weight_val + step, dec_weight_ideal_value + i);
 	}
 }
@@ -936,19 +988,20 @@ void compute_quantized_weights_for_decimation(
 ) {
 	int weight_count = di.weight_count;
 	promise(weight_count > 0);
-	const quantization_and_transfer_table *qat = &(quant_and_xfer_tables[quant_level]);
+	const quant_and_transfer_table& qat = quant_and_xfer_tables[quant_level];
 
 	// The available quant levels, stored with a minus 1 bias
 	static const float quant_levels_m1[12] {
 		1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 7.0f, 9.0f, 11.0f, 15.0f, 19.0f, 23.0f, 31.0f
 	};
 
+	vint steps_m1(get_quant_level(quant_level) - 1);
 	float quant_level_m1 = quant_levels_m1[quant_level];
 
 	// Quantize the weight set using both the specified low/high bounds and standard 0..1 bounds
 
 	// TODO: Oddity to investigate; triggered by test in issue #265.
-	if (high_bound < low_bound)
+	if (high_bound <= low_bound)
 	{
 		low_bound = 0.0f;
 		high_bound = 1.0f;
@@ -968,29 +1021,72 @@ void compute_quantized_weights_for_decimation(
 
 	// This runs to the rounded-up SIMD size, which is safe as the loop tail is filled with known
 	// safe data in compute_ideal_weights_for_decimation and arrays are always 64 elements
-	for (int i = 0; i < weight_count; i += ASTCENC_SIMD_WIDTH)
+	if (get_quant_level(quant_level) <= 16)
 	{
-		vfloat ix = loada(&dec_weight_ideal_value[i]) * scalev - scaled_low_boundv;
-		ix = clampzo(ix);
+		vint4 tab0 = vint4::load(qat.quant_to_unquant);
+		vint tab0p;
+		vtable_prepare(tab0, tab0p);
 
-		// Look up the two closest indexes and return the one that was closest
-		vfloat ix1 = ix * quant_level_m1v;
+		for (int i = 0; i < weight_count; i += ASTCENC_SIMD_WIDTH)
+		{
+			vfloat ix = loada(dec_weight_ideal_value + i) * scalev - scaled_low_boundv;
+			ix = clampzo(ix);
 
-		vint weightl = float_to_int(ix1);
-		vint weighth = weightl + vint(1);
+			// Look up the two closest indexes and return the one that was closest
+			vfloat ix1 = ix * quant_level_m1v;
 
-		vfloat ixl = gatherf(qat->unquantized_value_unsc, weightl);
-		vfloat ixh = gatherf(qat->unquantized_value_unsc, weighth);
+			vint weightl = float_to_int(ix1);
+			vint weighth = min(weightl + vint(1), steps_m1);
 
-		vmask mask = (ixl + ixh) < (vfloat(128.0f) * ix);
-		vint weight = select(weightl, weighth, mask);
-		ixl = select(ixl, ixh, mask);
+			vint ixli = vtable_8bt_32bi(tab0p, weightl);
+			vint ixhi = vtable_8bt_32bi(tab0p, weighth);
 
-		// Invert the weight-scaling that was done initially
-		storea(ixl * rscalev + low_boundv, &weight_set_out[i]);
-		vint scm = gatheri(qat->scramble_map, weight);
-		vint scn = pack_low_bytes(scm);
-		store_nbytes(scn, &quantized_weight_set[i]);
+			vfloat ixl = int_to_float(ixli);
+			vfloat ixh = int_to_float(ixhi);
+
+			vmask mask = (ixl + ixh) < (vfloat(128.0f) * ix);
+			vint weight = select(ixli, ixhi, mask);
+			ixl = select(ixl, ixh, mask);
+
+			// Invert the weight-scaling that was done initially
+			storea(ixl * rscalev + low_boundv, weight_set_out + i);
+			vint scn = pack_low_bytes(weight);
+			store_nbytes(scn, quantized_weight_set + i);
+		}
+	}
+	else
+	{
+		vint4 tab0 = vint4::load(qat.quant_to_unquant +  0);
+		vint4 tab1 = vint4::load(qat.quant_to_unquant + 16);
+		vint tab0p, tab1p;
+		vtable_prepare(tab0, tab1, tab0p, tab1p);
+
+		for (int i = 0; i < weight_count; i += ASTCENC_SIMD_WIDTH)
+		{
+			vfloat ix = loada(dec_weight_ideal_value + i) * scalev - scaled_low_boundv;
+			ix = clampzo(ix);
+
+			// Look up the two closest indexes and return the one that was closest
+			vfloat ix1 = ix * quant_level_m1v;
+
+			vint weightl = float_to_int(ix1);
+			vint weighth = min(weightl + vint(1), steps_m1);
+
+			vint ixli = vtable_8bt_32bi(tab0p, tab1p, weightl);
+			vint ixhi = vtable_8bt_32bi(tab0p, tab1p, weighth);
+
+			vfloat ixl = int_to_float(ixli);
+			vfloat ixh = int_to_float(ixhi);
+
+			vmask mask = (ixl + ixh) < (vfloat(128.0f) * ix);
+			vint weight = select(ixli, ixhi, mask);
+			ixl = select(ixl, ixh, mask);
+
+			// Invert the weight-scaling that was done initially
+			storea(ixl * rscalev + low_boundv, weight_set_out + i);
+			vint scn = pack_low_bytes(weight);
+			store_nbytes(scn, quantized_weight_set + i);
+		}
 	}
 }
 
@@ -1062,8 +1158,7 @@ void recompute_ideal_colors_1plane(
 	const image_block& blk,
 	const partition_info& pi,
 	const decimation_info& di,
-	int weight_quant_mode,
-	const uint8_t* dec_weights_quant_pvalue,
+	const uint8_t* dec_weights_uquant,
 	endpoints& ep,
 	vfloat4 rgbs_vectors[BLOCK_MAX_PARTITIONS],
 	vfloat4 rgbo_vectors[BLOCK_MAX_PARTITIONS]
@@ -1076,15 +1171,15 @@ void recompute_ideal_colors_1plane(
 	promise(total_texel_count > 0);
 	promise(partition_count > 0);
 
-	const quantization_and_transfer_table& qat = quant_and_xfer_tables[weight_quant_mode];
-
-	float dec_weight[BLOCK_MAX_WEIGHTS];
-	for (unsigned int i = 0; i < weight_count; i++)
+	ASTCENC_ALIGNAS float dec_weight[BLOCK_MAX_WEIGHTS];
+	for (unsigned int i = 0; i < weight_count; i += ASTCENC_SIMD_WIDTH)
 	{
-		dec_weight[i] = qat.unquantized_value[dec_weights_quant_pvalue[i]] * (1.0f / 64.0f);
+		vint unquant_value(dec_weights_uquant + i);
+		vfloat unquant_valuef = int_to_float(unquant_value) * vfloat(1.0f / 64.0f);
+		storea(unquant_valuef, dec_weight + i);
 	}
 
-	alignas(ASTCENC_VECALIGN) float undec_weight[BLOCK_MAX_TEXELS];
+	ASTCENC_ALIGNAS float undec_weight[BLOCK_MAX_TEXELS];
 	float* undec_weight_ref;
 	if (di.max_texel_weight_count == 1)
 	{
@@ -1121,7 +1216,7 @@ void recompute_ideal_colors_1plane(
 		// Only compute a partition mean if more than one partition
 		if (partition_count > 1)
 		{
-			rgba_sum = vfloat4(1e-17f);
+			rgba_sum = vfloat4::zero();
 			promise(texel_count > 0);
 			for (unsigned int j = 0; j < texel_count; j++)
 			{
@@ -1157,7 +1252,6 @@ void recompute_ideal_colors_1plane(
 		for (unsigned int j = 0; j < texel_count; j++)
 		{
 			unsigned int tix = texel_indexes[j];
-
 			vfloat4 rgba = blk.texel(tix);
 
 			float idx0 = undec_weight_ref[tix];
@@ -1190,14 +1284,11 @@ void recompute_ideal_colors_1plane(
 		vfloat4 right_sum  = vfloat4(right_sum_s) * color_weight;
 		vfloat4 lmrs_sum   = vfloat3(left_sum_s, middle_sum_s, right_sum_s) * ls_weight;
 
-		vfloat4 weight_weight_sum = vfloat4(weight_weight_sum_s) * color_weight;
-		float psum = right_sum_s * hadd_rgb_s(color_weight);
-
 		color_vec_x = color_vec_x * color_weight;
 		color_vec_y = color_vec_y * color_weight;
 
 		// Initialize the luminance and scale vectors with a reasonable default
-		float scalediv = scale_min * (1.0f / astc::max(scale_max, 1e-10f));
+		float scalediv = scale_min / astc::max(scale_max, 1e-10f);
 		scalediv = astc::clamp1f(scalediv);
 
 		vfloat4 sds = scale_dir * scale_max;
@@ -1249,32 +1340,38 @@ void recompute_ideal_colors_1plane(
 
 			if (fabsf(ls_det1) > (ls_mss1 * 1e-4f) && scale_ep0 == scale_ep0 && scale_ep1 == scale_ep1 && scale_ep0 < scale_ep1)
 			{
-				float scalediv2 = scale_ep0 * (1.0f / scale_ep1);
+				float scalediv2 = scale_ep0 / scale_ep1;
 				vfloat4 sdsm = scale_dir * scale_ep1;
 				rgbs_vectors[i] = vfloat4(sdsm.lane<0>(), sdsm.lane<1>(), sdsm.lane<2>(), scalediv2);
 			}
 		}
 
-		// Calculations specific to mode #7, the HDR RGB-scale mode
-		vfloat4 rgbq_sum = color_vec_x + color_vec_y;
-		rgbq_sum.set_lane<3>(hadd_rgb_s(color_vec_y));
-
-		vfloat4 rgbovec = compute_rgbo_vector(rgba_weight_sum, weight_weight_sum, rgbq_sum, psum);
-		rgbo_vectors[i] = rgbovec;
-
-		// We can get a failure due to the use of a singular (non-invertible) matrix
-		// If it failed, compute rgbo_vectors[] with a different method ...
-		if (astc::isnan(dot_s(rgbovec, rgbovec)))
+		// Calculations specific to mode #7, the HDR RGB-scale mode - skip if known LDR
+		if (blk.rgb_lns[0] || blk.alpha_lns[0])
 		{
-			vfloat4 v0 = ep.endpt0[i];
-			vfloat4 v1 = ep.endpt1[i];
+			vfloat4 weight_weight_sum = vfloat4(weight_weight_sum_s) * color_weight;
+			float psum = right_sum_s * hadd_rgb_s(color_weight);
 
-			float avgdif = hadd_rgb_s(v1 - v0) * (1.0f / 3.0f);
-			avgdif = astc::max(avgdif, 0.0f);
+			vfloat4 rgbq_sum = color_vec_x + color_vec_y;
+			rgbq_sum.set_lane<3>(hadd_rgb_s(color_vec_y));
 
-			vfloat4 avg = (v0 + v1) * 0.5f;
-			vfloat4 ep0 = avg - vfloat4(avgdif) * 0.5f;
-			rgbo_vectors[i] = vfloat4(ep0.lane<0>(), ep0.lane<1>(), ep0.lane<2>(), avgdif);
+			vfloat4 rgbovec = compute_rgbo_vector(rgba_weight_sum, weight_weight_sum, rgbq_sum, psum);
+			rgbo_vectors[i] = rgbovec;
+
+			// We can get a failure due to the use of a singular (non-invertible) matrix
+			// If it failed, compute rgbo_vectors[] with a different method ...
+			if (astc::isnan(dot_s(rgbovec, rgbovec)))
+			{
+				vfloat4 v0 = ep.endpt0[i];
+				vfloat4 v1 = ep.endpt1[i];
+
+				float avgdif = hadd_rgb_s(v1 - v0) * (1.0f / 3.0f);
+				avgdif = astc::max(avgdif, 0.0f);
+
+				vfloat4 avg = (v0 + v1) * 0.5f;
+				vfloat4 ep0 = avg - vfloat4(avgdif) * 0.5f;
+				rgbo_vectors[i] = vfloat4(ep0.lane<0>(), ep0.lane<1>(), ep0.lane<2>(), avgdif);
+			}
 		}
 	}
 }
@@ -1284,9 +1381,8 @@ void recompute_ideal_colors_2planes(
 	const image_block& blk,
 	const block_size_descriptor& bsd,
 	const decimation_info& di,
-	int weight_quant_mode,
-	const uint8_t* dec_weights_quant_pvalue_plane1,
-	const uint8_t* dec_weights_quant_pvalue_plane2,
+	const uint8_t* dec_weights_uquant_plane1,
+	const uint8_t* dec_weights_uquant_plane2,
 	endpoints& ep,
 	vfloat4& rgbs_vector,
 	vfloat4& rgbo_vector,
@@ -1298,20 +1394,24 @@ void recompute_ideal_colors_2planes(
 	promise(total_texel_count > 0);
 	promise(weight_count > 0);
 
-	const quantization_and_transfer_table *qat = &(quant_and_xfer_tables[weight_quant_mode]);
-
-	float dec_weight_plane1[BLOCK_MAX_WEIGHTS_2PLANE];
-	float dec_weight_plane2[BLOCK_MAX_WEIGHTS_2PLANE];
+	ASTCENC_ALIGNAS float dec_weight_plane1[BLOCK_MAX_WEIGHTS_2PLANE];
+	ASTCENC_ALIGNAS float dec_weight_plane2[BLOCK_MAX_WEIGHTS_2PLANE];
 
 	assert(weight_count <= BLOCK_MAX_WEIGHTS_2PLANE);
-	for (unsigned int i = 0; i < weight_count; i++)
+
+	for (unsigned int i = 0; i < weight_count; i += ASTCENC_SIMD_WIDTH)
 	{
-		dec_weight_plane1[i] = qat->unquantized_value[dec_weights_quant_pvalue_plane1[i]] * (1.0f / 64.0f);
-		dec_weight_plane2[i] = qat->unquantized_value[dec_weights_quant_pvalue_plane2[i]] * (1.0f / 64.0f);
+		vint unquant_value1(dec_weights_uquant_plane1 + i);
+		vfloat unquant_value1f = int_to_float(unquant_value1) * vfloat(1.0f / 64.0f);
+		storea(unquant_value1f, dec_weight_plane1 + i);
+
+		vint unquant_value2(dec_weights_uquant_plane2 + i);
+		vfloat unquant_value2f = int_to_float(unquant_value2) * vfloat(1.0f / 64.0f);
+		storea(unquant_value2f, dec_weight_plane2 + i);
 	}
 
-	alignas(ASTCENC_VECALIGN) float undec_weight_plane1[BLOCK_MAX_TEXELS];
-	alignas(ASTCENC_VECALIGN) float undec_weight_plane2[BLOCK_MAX_TEXELS];
+	ASTCENC_ALIGNAS float undec_weight_plane1[BLOCK_MAX_TEXELS];
+	ASTCENC_ALIGNAS float undec_weight_plane2[BLOCK_MAX_TEXELS];
 
 	float* undec_weight_plane1_ref;
 	float* undec_weight_plane2_ref;
@@ -1419,7 +1519,7 @@ void recompute_ideal_colors_2planes(
 		color_vec_x += cwprod - cwiprod;
 
 		scale_vec += vfloat2(om_idx0, idx0) * (ls_weight * scale);
-		weight_weight_sum += (color_weight * color_idx);
+		weight_weight_sum += color_idx;
 	}
 
 	vfloat4 left1_sum   = vfloat4(left1_sum_s) * color_weight;
@@ -1431,13 +1531,11 @@ void recompute_ideal_colors_2planes(
 	vfloat4 middle2_sum = vfloat4(middle2_sum_s) * color_weight;
 	vfloat4 right2_sum  = vfloat4(right2_sum_s) * color_weight;
 
-	float psum = dot3_s(select(right1_sum, right2_sum, p2_mask), color_weight);
-
 	color_vec_x = color_vec_x * color_weight;
 	color_vec_y = color_vec_y * color_weight;
 
 	// Initialize the luminance and scale vectors with a reasonable default
-	float scalediv = scale_min * (1.0f / astc::max(scale_max, 1e-10f));
+	float scalediv = scale_min / astc::max(scale_max, 1e-10f);
 	scalediv = astc::clamp1f(scalediv);
 
 	vfloat4 sds = scale_dir * scale_max;
@@ -1493,7 +1591,7 @@ void recompute_ideal_colors_2planes(
 
 		if (fabsf(ls_det1) > (ls_mss1 * 1e-4f) && scale_ep0 == scale_ep0 && scale_ep1 == scale_ep1 && scale_ep0 < scale_ep1)
 		{
-			float scalediv2 = scale_ep0 * (1.0f / scale_ep1);
+			float scalediv2 = scale_ep0 / scale_ep1;
 			vfloat4 sdsm = scale_dir * scale_ep1;
 			rgbs_vector = vfloat4(sdsm.lane<0>(), sdsm.lane<1>(), sdsm.lane<2>(), scalediv2);
 		}
@@ -1533,26 +1631,32 @@ void recompute_ideal_colors_2planes(
 		ep.endpt1[0] = select(ep.endpt1[0], ep1, full_mask);
 	}
 
-	// Calculations specific to mode #7, the HDR RGB-scale mode
-	vfloat4 rgbq_sum = color_vec_x + color_vec_y;
-	rgbq_sum.set_lane<3>(hadd_rgb_s(color_vec_y));
-
-	rgbo_vector = compute_rgbo_vector(rgba_weight_sum, weight_weight_sum, rgbq_sum, psum);
-
-	// We can get a failure due to the use of a singular (non-invertible) matrix
-	// If it failed, compute rgbo_vectors[] with a different method ...
-	if (astc::isnan(dot_s(rgbo_vector, rgbo_vector)))
+	// Calculations specific to mode #7, the HDR RGB-scale mode - skip if known LDR
+	if (blk.rgb_lns[0] || blk.alpha_lns[0])
 	{
-		vfloat4 v0 = ep.endpt0[0];
-		vfloat4 v1 = ep.endpt1[0];
+		weight_weight_sum = weight_weight_sum * color_weight;
+		float psum = dot3_s(select(right1_sum, right2_sum, p2_mask), color_weight);
 
-		float avgdif = hadd_rgb_s(v1 - v0) * (1.0f / 3.0f);
-		avgdif = astc::max(avgdif, 0.0f);
+		vfloat4 rgbq_sum = color_vec_x + color_vec_y;
+		rgbq_sum.set_lane<3>(hadd_rgb_s(color_vec_y));
 
-		vfloat4 avg = (v0 + v1) * 0.5f;
-		vfloat4 ep0 = avg - vfloat4(avgdif) * 0.5f;
+		rgbo_vector = compute_rgbo_vector(rgba_weight_sum, weight_weight_sum, rgbq_sum, psum);
 
-		rgbo_vector = vfloat4(ep0.lane<0>(), ep0.lane<1>(), ep0.lane<2>(), avgdif);
+		// We can get a failure due to the use of a singular (non-invertible) matrix
+		// If it failed, compute rgbo_vectors[] with a different method ...
+		if (astc::isnan(dot_s(rgbo_vector, rgbo_vector)))
+		{
+			vfloat4 v0 = ep.endpt0[0];
+			vfloat4 v1 = ep.endpt1[0];
+
+			float avgdif = hadd_rgb_s(v1 - v0) * (1.0f / 3.0f);
+			avgdif = astc::max(avgdif, 0.0f);
+
+			vfloat4 avg = (v0 + v1) * 0.5f;
+			vfloat4 ep0 = avg - vfloat4(avgdif) * 0.5f;
+
+			rgbo_vector = vfloat4(ep0.lane<0>(), ep0.lane<1>(), ep0.lane<2>(), avgdif);
+		}
 	}
 }
 

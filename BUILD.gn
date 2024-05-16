@@ -38,7 +38,6 @@ ohos_source_set("astc_encoder_static") {
     "//third_party/astc-encoder/Source/astcenc_partition_tables.cpp",
     "//third_party/astc-encoder/Source/astcenc_percentile_tables.cpp",
     "//third_party/astc-encoder/Source/astcenc_pick_best_endpoint_format.cpp",
-    "//third_party/astc-encoder/Source/astcenc_platform_isa_detection.cpp",
     "//third_party/astc-encoder/Source/astcenc_quantization.cpp",
     "//third_party/astc-encoder/Source/astcenc_symbolic_physical.cpp",
     "//third_party/astc-encoder/Source/astcenc_weight_align.cpp",
@@ -51,7 +50,6 @@ ohos_source_set("astc_encoder_static") {
 ohos_shared_library("astc_encoder_shared") {
   public_configs = [ ":astc_encoder_config" ]
   deps = [ ":astc_encoder_static" ]
-  output_extension = "so"
   install_enable = true
   part_name = "astc-encoder"
   innerapi_tags = [ "platformsdk" ]

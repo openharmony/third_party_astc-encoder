@@ -43,7 +43,7 @@ spec:
     - name: artifactory-ms-docker
   containers:
     - name: astcenc
-      image: mobile-studio--docker.eu-west-1.artifactory.aws.arm.com/astcenc:3.1.0
+      image: mobile-studio--docker.eu-west-1.artifactory.aws.arm.com/astcenc:3.2.0
       command:
         - sleep
       args:
@@ -73,7 +73,7 @@ spec:
                     mkdir build_cov
                     cd build_cov
 
-                    cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../ -DISA_AVX2=ON ..
+                    cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../ -DASTCENC_ISA_AVX2=ON ..
 
                     cov-configure --config ${WORKSPACE}/coverity.conf --template --compiler cc --comptype gcc
                     cov-configure --config ${WORKSPACE}/coverity.conf --template --compiler c++ --comptype g++
@@ -127,24 +127,24 @@ spec:
                 sh 'git clean -ffdx'
               }
             }
-            stage('Build astcenc R') {
+            stage('Build astcenc R x64') {
               steps {
                 sh '''
                   export CXX=clang++-9
                   mkdir build_rel
                   cd build_rel
-                  cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../ -DISA_AVX2=ON -DISA_SSE41=ON -DISA_SSE2=ON -DISA_NONE=ON -DPACKAGE=x64 ..
+                  cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../ -DASTCENC_ISA_AVX2=ON -DASTCENC_ISA_SSE41=ON -DASTCENC_ISA_SSE2=ON -DASTCENC_PACKAGE=x64 ..
                   make install package -j4
                 '''
               }
             }
-            stage('Build astcdec R') {
+            stage('Build astcdec R x64') {
               steps {
                 sh '''
                   export CXX=clang++-9
                   mkdir build_reldec
                   cd build_reldec
-                  cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../ -DISA_AVX2=ON -DISA_SSE41=ON -DISA_SSE2=ON -DISA_NONE=ON -DDECOMPRESSOR=ON ..
+                  cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../ -DASTCENC_ISA_AVX2=ON -DASTCENC_ISA_SSE41=ON -DASTCENC_ISA_SSE2=ON -DASTCENC_DECOMPRESSOR=ON ..
                   make -j4
                 '''
               }
@@ -178,17 +178,51 @@ spec:
                 bat 'git clean -ffdx'
               }
             }
-            stage('Build R') {
+            stage('Build R x64') {
               steps {
                 bat '''
-                  call c:\\progra~2\\micros~1\\2019\\buildtools\\vc\\auxiliary\\build\\vcvars64.bat
+                  call c:\\progra~2\\micros~1\\2022\\buildtools\\vc\\auxiliary\\build\\vcvars64.bat
                   mkdir build_rel
                   cd build_rel
-                  cmake -G "Visual Studio 16 2019" -T ClangCL -DCMAKE_INSTALL_PREFIX=../ -DISA_AVX2=ON -DISA_SSE41=ON -DISA_SSE2=ON -DPACKAGE=x64 ..
+                  cmake -G "Visual Studio 17 2022" -T ClangCL -DCMAKE_INSTALL_PREFIX=../ -DASTCENC_ISA_AVX2=ON -DASTCENC_ISA_SSE41=ON -DASTCENC_ISA_SSE2=ON -DASTCENC_PACKAGE=x64 ..
                   msbuild astcencoder.sln -property:Configuration=Release
                   msbuild PACKAGE.vcxproj -property:Configuration=Release
                   msbuild INSTALL.vcxproj -property:Configuration=Release
                 '''
+              }
+            }
+            stage('Build R Arm64') {
+              steps {
+                bat '''
+                  call c:\\progra~2\\micros~1\\2022\\buildtools\\vc\\auxiliary\\build\\vcvarsall.bat x64_arm64
+                  mkdir build_rel_arm64
+                  cd build_rel_arm64
+                  cmake -G "Visual Studio 17 2022" -A ARM64 -T ClangCL -DCMAKE_INSTALL_PREFIX=../ -DASTCENC_ISA_NEON=ON -DASTCENC_PACKAGE=arm64 ..
+                  msbuild astcencoder.sln -property:Configuration=Release
+                  msbuild PACKAGE.vcxproj -property:Configuration=Release
+                  msbuild INSTALL.vcxproj -property:Configuration=Release
+                '''
+              }
+            }
+            stage('Sign') {
+              steps {
+                dir('sign_tools') {
+                    checkout changelog: false,
+                             poll: false,
+                             scm: [$class: 'GitSCM',
+                                   branches: [[name: '*/main']],
+                                   doGenerateSubmoduleConfigurations: false,
+                                   extensions: [],
+                                   submoduleCfg: [],
+                                   userRemoteConfigs: [[credentialsId: 'gerrit-jenkins-ssh',
+                                                        url: 'ssh://mirror.eu-west-1.gerrit-eu01.aws.arm.com:29418/Hive/shared/signing']]]
+                }
+                withCredentials([usernamePassword(credentialsId: 'cepe-artifactory-jenkins',
+                                                  usernameVariable: 'AF_USER',
+                                                  passwordVariable: 'APIKEY')]) {
+                    powershell 'C:\\Python311\\python.exe .\\sign_tools\\windows-client-wrapper.py -b $Env:BUILD_NUMBER -t $Env:APIKEY (Get-ChildItem -Filter build_rel\\*.zip)[0].FullName'
+                    powershell 'C:\\Python311\\python.exe .\\sign_tools\\windows-client-wrapper.py -b $Env:BUILD_NUMBER -t $Env:APIKEY (Get-ChildItem -Filter build_rel_arm64\\*.zip)[0].FullName'
+                }
               }
             }
             stage('Stash') {
@@ -196,6 +230,10 @@ spec:
                 dir('build_rel') {
                   stash name: 'astcenc-windows-x64', includes: '*.zip'
                   stash name: 'astcenc-windows-x64-hash', includes: '*.zip.sha256'
+                }
+                dir('build_rel_arm64') {
+                  stash name: 'astcenc-windows-arm64', includes: '*.zip'
+                  stash name: 'astcenc-windows-arm64-hash', includes: '*.zip.sha256'
                 }
               }
             }
@@ -212,7 +250,7 @@ spec:
         /* Build for macOS on x86-64 using Clang */
         stage('macOS') {
           agent {
-            label 'mac && notarizer'
+            label 'mac && x86_64 && notarizer'
           }
           stages {
             stage('Clean') {
@@ -225,7 +263,7 @@ spec:
                 sh '''
                   mkdir build_rel
                   cd build_rel
-                  cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../ -DISA_AVX2=ON -DISA_SSE41=ON -DISA_SSE2=ON -DPACKAGE=x64 ..
+                  cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../ -DASTCENC_PACKAGE=universal ..
                   make install package -j4
                 '''
               }
@@ -249,8 +287,8 @@ spec:
             stage('Stash') {
               steps {
                 dir('build_rel') {
-                  stash name: 'astcenc-macos-x64', includes: '*.zip'
-                  stash name: 'astcenc-macos-x64-hash', includes: '*.zip.sha256'
+                  stash name: 'astcenc-macos-universal', includes: '*.zip'
+                  stash name: 'astcenc-macos-universal-hash', includes: '*.zip.sha256'
                 }
               }
             }
@@ -258,58 +296,10 @@ spec:
               steps {
                 sh '''
                   export PATH=/usr/local/bin:$PATH
-                  python3 ./Test/astc_test_image.py --test-set Small
+                  python3 ./Test/astc_test_image.py --test-set Small --encoder universal
                 '''
               }
             }
-          }
-        }
-        /* Build for macOS on x86-64 using Clang */
-        stage('macOS arm64') {
-          agent {
-            label 'mac && notarizer'
-          }
-          stages {
-            stage('Clean') {
-              steps {
-                sh 'git clean -ffdx'
-              }
-            }
-            stage('Build R') {
-              steps {
-                sh '''
-                  mkdir build_rel
-                  cd build_rel
-                  cmake -G "Unix Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=../ -DISA_NEON=ON -DPACKAGE=aarch64 ..
-                  make install package -j4
-                '''
-              }
-            }
-            stage('Sign and notarize') {
-              environment {
-                NOTARIZATION_CREDS = credentials('notarization-account')
-              }
-              steps {
-                dir('build_rel') {
-                  sh 'git clone ssh://eu-gerrit-1.euhpc.arm.com:29418/Hive/shared/signing'
-                  withCredentials([usernamePassword(credentialsId: 'win-signing',
-                                                    usernameVariable: 'USERNAME',
-                                                    passwordVariable: 'PASSWORD')]) {
-                    sh 'python3 ./signing/macos-client-wrapper.py ${USERNAME} *.zip'
-                    sh 'rm -rf ./signing'
-                  }
-                }
-              }
-            }
-            stage('Stash') {
-              steps {
-                dir('build_rel') {
-                  stash name: 'astcenc-macos-aarch64', includes: '*.zip'
-                  stash name: 'astcenc-macos-aarch64-hash', includes: '*.zip.sha256'
-                }
-              }
-            }
-            // TODO: Currently can't test automatically
           }
         }
       }
@@ -348,37 +338,16 @@ spec:
         stage('Unstash') {
           steps {
             dir('upload') {
+              unstash 'astcenc-windows-x64-hash'
+              unstash 'astcenc-windows-arm64-hash'
               unstash 'astcenc-linux-x64-hash'
-              unstash 'astcenc-macos-x64-hash'
-              unstash 'astcenc-macos-aarch64-hash'
+              unstash 'astcenc-macos-universal-hash'
 
-              unstash 'astcenc-linux-x64'
-              unstash 'astcenc-macos-x64'
-              unstash 'astcenc-macos-aarch64'
-            }
-            dir('upload/windows-x64') {
               unstash 'astcenc-windows-x64'
-              dir('signing') {
-                checkout changelog: false,
-                         poll: false,
-                         scm: [$class: 'GitSCM',
-                               branches: [[name: '*/master']],
-                               doGenerateSubmoduleConfigurations: false,
-                               extensions: [],
-                               submoduleCfg: [],
-                               userRemoteConfigs: [[credentialsId: 'gerrit-jenkins-ssh',
-                                                    url: 'ssh://mirror.eu-west-1.gerrit-eu01.aws.arm.com:29418/Hive/shared/signing']]]
-              }
-              withCredentials([usernamePassword(credentialsId: 'win-signing',
-                                                usernameVariable: 'USERNAME',
-                                                passwordVariable: 'PASSWORD')]) {
-                sh 'python3 ./signing/windows-client-wrapper.py ${USERNAME} *.zip'
-                sh 'mv *.zip.sha256 ../'
-                sh 'mv *.zip ../'
-              }
-            }
-            dir('upload') {
-              sh 'rm -rf ./windows-x64'
+              unstash 'astcenc-windows-arm64'
+              unstash 'astcenc-linux-x64'
+              unstash 'astcenc-macos-universal'
+
               sh 'cat *.sha256 > release-sha256.txt'
               sh 'rm *.sha256'
             }
@@ -395,13 +364,6 @@ spec:
         always {
           deleteDir()
         }
-      }
-    }
-  }
-  post {
-    failure {
-      script {
-        slackSend channel: '#dsg-eng-astcenc', color: 'danger', message: "Build ${JOB_NAME} ${BUILD_NUMBER} failed. (<${BUILD_URL}|Open>)", teamDomain: 'arm-dsg', tokenCredentialId: 'jenkins-slack', username: 'jenkins'
       }
     }
   }

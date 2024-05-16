@@ -1,13 +1,13 @@
 # About
 
-This is the official repository for the Arm® Adaptive Scalable Texture
-Compression (ASTC) Encoder, `astcenc`, a command-line tool for compressing
-and decompressing images using the ASTC texture compression standard.
+The Arm® Adaptive Scalable Texture Compression (ASTC) Encoder, `astcenc`, is
+a command-line tool for compressing and decompressing images using the ASTC
+texture compression standard.
 
 ## The ASTC format
 
 The ASTC compressed data format, developed by Arm® and AMD, has been adopted as
-an official extension to the Open GL®, OpenGL ES, and Vulkan® graphics APIs. It
+an official extension to the OpenGL®, OpenGL ES, and Vulkan® graphics APIs. It
 provides a major step forward in terms of both the image quality at a given
 bitrate, and the format and bitrate flexibility available to content creators.
 This allows more assets to use compression, often at a reduced bitrate compared
@@ -20,7 +20,7 @@ read the full [Khronos Data Format Specification][2] for all the details.
 
 This project is licensed under the Apache 2.0 license. By downloading any
 component from this repository you acknowledge that you accept terms specified
-in the [LICENSE](LICENSE) file.
+in the [LICENSE.txt](LICENSE.txt) file.
 
 # Encoder feature support
 
@@ -33,8 +33,8 @@ dynamic range (BMP, PNG, TGA), high dynamic range (EXR, HDR), or DDS and KTX
 wrapped output images.
 
 The encoder allows control over the compression time/quality tradeoff with
-`exhaustive`, `thorough`, `medium`, `fast`, and `fastest` encoding quality
-presets.
+`exhaustive`, `verythorough`, `thorough`, `medium`, `fast`, and `fastest`
+encoding quality presets.
 
 The encoder allows compression time and quality analysis by reporting the
 compression time, and the Peak Signal-to-Noise Ratio (PSNR) between the input
@@ -58,15 +58,15 @@ from 0.89 bits/pixel up to 8 bits/pixel.
 Release build binaries for the `astcenc` stable releases are provided in the
 [GitHub Releases page][3].
 
-**Latest 3.x stable release:** 3.7
+* Change log: [4.x series](./Docs/ChangeLog-4x.md)
 * Change log: [3.x series](./Docs/ChangeLog-3x.md)
 
-**Latest 2.x stable release:** 2.5
-* Change log: [2.x series](./Docs/ChangeLog-2x.md)
+Binaries are provided for 64-bit builds on Windows, macOS, and Linux.
 
-Binaries are provided for 64-bit builds on Windows, macOS, and Linux. The
-builds of the astcenc are provided as multiple binaries, each tuned for a
-specific SIMD instruction set.
+## Windows and Linux
+
+For Windows and Linux the builds of the astcenc are provided as multiple
+binaries, each tuned for a specific SIMD instruction set.
 
 For x86-64 we provide, in order of increasing performance:
 
@@ -78,23 +78,33 @@ The x86-64 SSE2 builds will work on all x86-64 machines, but it is the slowest
 of the three. The other two require extended CPU instruction set support which
 is not universally available, but each step gains ~15% more performance.
 
-For Apple silicon macOS devices we provide:
+For Arm, if binaries are available, we provide:
 
 * `astcenc-neon` - uses NEON
 
+## macOS
+
+For macOS devices we provide a single universal binary `astcenc`, which allows
+the OS to automatically use the correct binary variant for the current host
+machine. Support is provided for three architecture slices:
+
+* `x86_64` - uses the `astcenc-sse4.1` build defined above.
+* `x86_64h` - uses the `astcenc-avx2` build defined above.
+* `arm64` - uses the `astcenc-neon` build defined above.
 
 ## Repository branches
 
 The `main` branch is an active development branch for the compressor. It aims
-to be a stable branch, but as it is used for ongoing development expect it to
-have some volatility.
+to be a stable branch for the latest major release series, but as it is used
+for ongoing development expect it to have some volatility. We recommend using
+the latest stable release tag for production development.
 
-The `2.x` branch is a stable branch for the 2.x release series. It is no longer
-under active development, but is a supported branch that will continue to get
+The `3.x` branch is a stable branch for the 3.x release series. It is no longer
+under active development, but is a supported branch that continues to get
 backported bug fixes.
 
-The `1.x` branch is a stable branch for the 1.x release series. It is no longer
-under active development or getting bug fixes.
+The `1.x` and `2.x` branches are stable branches for older releases. They are
+no longer under active development or getting bug fixes.
 
 Any other branches you might find are development branches for new features or
 optimizations, so might be interesting to play with but should be considered
@@ -134,6 +144,11 @@ The modes available are:
 * `-cs` : use the sRGB LDR color profile.
 * `-ch` : use the HDR color profile, tuned for HDR RGB and LDR A.
 * `-cH` : use the HDR color profile, tuned for HDR RGBA.
+
+If you intend to use the resulting image with the decode mode extensions to
+limit the decompressed precision to UNORM8, it is recommended that you also
+specify the `-decode_unorm8` flag. This will ensure that the compressor uses
+the correct rounding rules when choosing encodings.
 
 ## Decompressing an image
 
@@ -180,11 +195,6 @@ The compression speed can be controlled from `-fastest`, through `-fast`,
 encoder has to spend looking for good encodings the better the results, but it
 does result in increasingly small improvements for the amount of time required.
 
-:warning: The `-fastest` quality preset is designed for quickly roughing-out
-new content. It is tuned to give the fastest possible compression, often at the
-expense of significant image quality loss compared to `-fast`. We do not
-recommend using it for production builds.
-
 There are many other command line options for tuning the encoder parameters
 which can be used to fine tune the compression algorithm. See the command line
 help message for more details.
@@ -203,6 +213,9 @@ It covers:
 * How to efficiently encode normal maps, sRGB data, and HDR data.
 * Coding equivalents to other compression formats.
 
+The [ASTC Developer Guide][5] document (external link) provides a more detailed
+guide for developers using the `astcenc` compressor.
+
 The [.astc File Format](./Docs/FileFormat.md) page provides a light-weight
 specification for the `.astc` file format and how to read or write it.
 
@@ -217,10 +230,16 @@ how to test any modifications to the source code in this repository.
 If you have issues with the `astcenc` encoder, or questions about the ASTC
 texture format itself, please raise them in the GitHub issue tracker.
 
+If you have any questions about Arm GPUs, application development for Arm GPUs,
+or general mobile graphics development or technology please submit them on the
+[Arm Community graphics forums][4].
+
 - - -
 
-_Copyright © 2013-2022, Arm Limited and contributors. All rights reserved._
+_Copyright © 2013-2024, Arm Limited and contributors. All rights reserved._
 
 [1]: ./Docs/FormatOverview.md
 [2]: https://www.khronos.org/registry/DataFormat/specs/1.3/dataformat.1.3.html#ASTC
 [3]: https://github.com/ARM-software/astc-encoder/releases
+[4]: https://community.arm.com/support-forums/f/graphics-gaming-and-vr-forum/
+[5]: https://developer.arm.com/documentation/102162/latest/?lang=en

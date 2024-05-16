@@ -41,7 +41,7 @@ astc-encoder引入openharmony的thirdparty目录下，
    ```
    ./build.sh --product-name rk3568 --ccache
    ```
-编译生成物对应路径：`out/rk3568/thirdparty/astc-encoder/libastc_encoder_shared.so`。
+编译生成物对应路径：`out/rk3568/thirdparty/astc-encoder/libastc_encoder_shared.z.so`。
 
 ## 许可证<a name="section126611612164217"></a>
 

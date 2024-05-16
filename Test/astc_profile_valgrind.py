@@ -33,23 +33,22 @@ import re
 import subprocess as sp
 import sys
 
-def postprocess_cga(logfile, outfile):
+def postprocess_cga(lines, outfile):
     """
     Postprocess the output of callgrind_annotate.
 
     Args:
-        logfile (str): The output of callgrind_annotate.
+        lines ([str]): The output of callgrind_annotate.
         outfile (str): The output file path to write.
     """
-    pattern = re.compile("^\s*([0-9,]+)\s+Source/(\S+):(\S+)\(.*\).*$")
-
-    lines = logfile.splitlines()
+    pattern = re.compile("^\s*([0-9,]+)\s+\([ 0-9.]+%\)\s+Source/(\S+):(\S+)\(.*\).*$")
 
     totalCost = 0.0
     functionTable = []
     functionMap = {}
 
     for line in lines:
+        line = line.strip()
         match = pattern.match(line)
         if not match:
             continue
@@ -82,12 +81,18 @@ def postprocess_cga(logfile, outfile):
         function[2] *= 100.0
 
     with open(outfile, "w") as fileHandle:
+
+        totals = 0.0
         for function in functionTable:
             # Omit entries less than 1% load
             if function[2] < 1:
                 break
 
+            totals += function[2]
             fileHandle.write("%5.2f%%  %s\n" % (function[2], function[0]))
+
+        fileHandle.write("======\n")
+        fileHandle.write(f"{totals:5.2f}%\n")
 
 
 def run_pass(image, noStartup, encoder, blocksize, quality):
@@ -104,7 +109,7 @@ def run_pass(image, noStartup, encoder, blocksize, quality):
     Raises:
         CalledProcessException: Any subprocess failed.
     """
-    binary =  "./astcenc/astcenc-%s" % encoder
+    binary =  "./bin/astcenc-%s" % encoder
     args = ["valgrind", "--tool=callgrind", "--callgrind-out-file=callgrind.txt",
             binary, "-cl", image, "out.astc", blocksize, quality, "-j", "1"]
 
@@ -112,11 +117,15 @@ def run_pass(image, noStartup, encoder, blocksize, quality):
 
     args = ["callgrind_annotate", "callgrind.txt"]
     ret = sp.run(args, stdout=sp.PIPE, check=True, encoding="utf-8")
-    postprocess_cga(ret.stdout, "perf_%s.txt" % quality.replace("-", ""))
+    lines = ret.stdout.splitlines()
+    with open("perf_%s_cga.txt" % quality.replace("-", ""), "w") as handle:
+        handle.write("\n".join(lines))
+
+    postprocess_cga(lines, "perf_%s.txt" % quality.replace("-", ""))
 
     if noStartup:
         args = ["gprof2dot", "--format=callgrind", "--output=out.dot", "callgrind.txt",
-                "-s", "-z", "compress_block(astcenc_context const&, image_block const&, physical_compressed_block&, compression_working_buffers&)"]
+                "-s", "-z", "compress_block(astcenc_contexti const&, image_block const&, physical_compressed_block&, compression_working_buffers&)"]
     else:
         args = ["gprof2dot", "--format=callgrind", "--output=out.dot", "callgrind.txt",
                 "-s",  "-z", "main"]
