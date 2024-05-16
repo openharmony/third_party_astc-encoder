@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // ----------------------------------------------------------------------------
-// Copyright 2011-2022 Arm Limited
+// Copyright 2011-2024 Arm Limited
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not
 // use this file except in compliance with the License. You may obtain a copy
@@ -25,47 +25,17 @@
 #include <assert.h>
 
 /**
- * @brief Compute a vector of texel weights by interpolating the decimated weight grid.
- *
- * @param base_texel_index   The first texel to get; N (SIMD width) consecutive texels are loaded.
- * @param di                 The weight grid decimation to use.
- * @param weights            The raw weights.
- *
- * @return The undecimated weight for N (SIMD width) texels.
- */
-static vint compute_value_of_texel_weight_int_vla(
-	int base_texel_index,
-	const decimation_info& di,
-	const int* weights
-) {
-	vint summed_value(8);
-	vint weight_count(di.texel_weight_count + base_texel_index);
-	int max_weight_count = hmax(weight_count).lane<0>();
-
-	promise(max_weight_count > 0);
-	for (int i = 0; i < max_weight_count; i++)
-	{
-		vint texel_weights(di.texel_weights_4t[i] + base_texel_index);
-		vint texel_weights_int(di.texel_weights_int_4t[i] + base_texel_index);
-
-		summed_value += gatheri(weights, texel_weights) * texel_weights_int;
-	}
-
-	return lsr<4>(summed_value);
-}
-
-/**
  * @brief Compute the integer linear interpolation of two color endpoints.
  *
- * @param decode_mode   The ASTC profile (linear or sRGB)
+ * @param u8_mask       The mask for lanes using decode_unorm8 rather than decode_f16.
  * @param color0        The endpoint0 color.
  * @param color1        The endpoint1 color.
- * @param weights        The interpolation weight (between 0 and 64).
+ * @param weights       The interpolation weight (between 0 and 64).
  *
  * @return The interpolated color.
  */
 static vint4 lerp_color_int(
-	astcenc_profile decode_mode,
+	vmask4 u8_mask,
 	vint4 color0,
 	vint4 color1,
 	vint4 weights
@@ -73,23 +43,17 @@ static vint4 lerp_color_int(
 	vint4 weight1 = weights;
 	vint4 weight0 = vint4(64) - weight1;
 
-	if (decode_mode == ASTCENC_PRF_LDR_SRGB)
-	{
-		color0 = asr<8>(color0);
-		color1 = asr<8>(color1);
-	}
-
 	vint4 color = (color0 * weight0) + (color1 * weight1) + vint4(32);
 	color = asr<6>(color);
 
-	if (decode_mode == ASTCENC_PRF_LDR_SRGB)
-	{
-		color = color * vint4(257);
-	}
+	// For decode_unorm8 values force the codec to bit replicate. This allows the
+	// rest of the codec to assume the full 0xFFFF range for everything and ignore
+	// the decode_mode setting
+	vint4 color_u8 = asr<8>(color) * vint4(257);
+	color = select(color, color_u8, u8_mask);
 
 	return color;
 }
-
 
 /**
  * @brief Convert integer color value into a float value for the decoder.
@@ -127,43 +91,74 @@ void unpack_weights(
 	const symbolic_compressed_block& scb,
 	const decimation_info& di,
 	bool is_dual_plane,
-	quant_method quant_level,
 	int weights_plane1[BLOCK_MAX_TEXELS],
 	int weights_plane2[BLOCK_MAX_TEXELS]
 ) {
-	// First, unquantize the weights ...
-	int uq_plane1_weights[BLOCK_MAX_WEIGHTS];
-	int uq_plane2_weights[BLOCK_MAX_WEIGHTS];
-	unsigned int weight_count = di.weight_count;
-
-	const quantization_and_transfer_table *qat = &(quant_and_xfer_tables[quant_level]);
-
-	// Second, undecimate the weights ...
 	// Safe to overshoot as all arrays are allocated to full size
 	if (!is_dual_plane)
 	{
-		for (unsigned int i = 0; i < weight_count; i++)
-		{
-			uq_plane1_weights[i] = qat->unquantized_value[scb.weights[i]];
-		}
+		// Build full 64-entry weight lookup table
+		vint4 tab0 = vint4::load(scb.weights +  0);
+		vint4 tab1 = vint4::load(scb.weights + 16);
+		vint4 tab2 = vint4::load(scb.weights + 32);
+		vint4 tab3 = vint4::load(scb.weights + 48);
+
+		vint tab0p, tab1p, tab2p, tab3p;
+		vtable_prepare(tab0, tab1, tab2, tab3, tab0p, tab1p, tab2p, tab3p);
 
 		for (unsigned int i = 0; i < bsd.texel_count; i += ASTCENC_SIMD_WIDTH)
 		{
-			store(compute_value_of_texel_weight_int_vla(i, di, uq_plane1_weights), weights_plane1 + i);
+			vint summed_value(8);
+			vint weight_count(di.texel_weight_count + i);
+			int max_weight_count = hmax(weight_count).lane<0>();
+
+			promise(max_weight_count > 0);
+			for (int j = 0; j < max_weight_count; j++)
+			{
+				vint texel_weights(di.texel_weights_tr[j] + i);
+				vint texel_weights_int(di.texel_weight_contribs_int_tr[j] + i);
+
+				summed_value += vtable_8bt_32bi(tab0p, tab1p, tab2p, tab3p, texel_weights) * texel_weights_int;
+			}
+
+			store(lsr<4>(summed_value), weights_plane1 + i);
 		}
 	}
 	else
 	{
-		for (unsigned int i = 0; i < weight_count; i++)
-		{
-			uq_plane1_weights[i] = qat->unquantized_value[scb.weights[i]];
-			uq_plane2_weights[i] = qat->unquantized_value[scb.weights[i + WEIGHTS_PLANE2_OFFSET]];
-		}
+		// Build a 32-entry weight lookup table per plane
+		// Plane 1
+		vint4 tab0_plane1 = vint4::load(scb.weights +  0);
+		vint4 tab1_plane1 = vint4::load(scb.weights + 16);
+		vint tab0_plane1p, tab1_plane1p;
+		vtable_prepare(tab0_plane1, tab1_plane1, tab0_plane1p, tab1_plane1p);
+
+		// Plane 2
+		vint4 tab0_plane2 = vint4::load(scb.weights + 32);
+		vint4 tab1_plane2 = vint4::load(scb.weights + 48);
+		vint tab0_plane2p, tab1_plane2p;
+		vtable_prepare(tab0_plane2, tab1_plane2, tab0_plane2p, tab1_plane2p);
 
 		for (unsigned int i = 0; i < bsd.texel_count; i += ASTCENC_SIMD_WIDTH)
 		{
-			store(compute_value_of_texel_weight_int_vla(i, di, uq_plane1_weights), weights_plane1 + i);
-			store(compute_value_of_texel_weight_int_vla(i, di, uq_plane2_weights), weights_plane2 + i);
+			vint sum_plane1(8);
+			vint sum_plane2(8);
+
+			vint weight_count(di.texel_weight_count + i);
+			int max_weight_count = hmax(weight_count).lane<0>();
+
+			promise(max_weight_count > 0);
+			for (int j = 0; j < max_weight_count; j++)
+			{
+				vint texel_weights(di.texel_weights_tr[j] + i);
+				vint texel_weights_int(di.texel_weight_contribs_int_tr[j] + i);
+
+				sum_plane1 += vtable_8bt_32bi(tab0_plane1p, tab1_plane1p, texel_weights) * texel_weights_int;
+				sum_plane2 += vtable_8bt_32bi(tab0_plane2p, tab1_plane2p, texel_weights) * texel_weights_int;
+			}
+
+			store(lsr<4>(sum_plane1), weights_plane1 + i);
+			store(lsr<4>(sum_plane2), weights_plane2 + i);
 		}
 	}
 }
@@ -228,12 +223,13 @@ void decompress_symbolic_block(
 		{
 			vint4 colori(scb.constant_color);
 
-			// For sRGB decoding a real decoder would just use the top 8 bits for color conversion.
-			// We don't color convert, so rescale the top 8 bits into the full 16 bit dynamic range.
-			if (decode_mode == ASTCENC_PRF_LDR_SRGB)
-			{
-				colori = asr<8>(colori) * 257;
-			}
+			// Determine the UNORM8 rounding on the decode
+			vmask4 u8_mask = get_u8_component_mask(decode_mode, blk);
+
+			// The real decoder would just use the top 8 bits, but we rescale
+			// in to a 16-bit value that rounds correctly.
+			vint4 colori_u8 = asr<8>(colori) * 257;
+			colori = select(colori, colori_u8, u8_mask);
 
 			vint4 colorf16 = unorm16_to_sf16(colori);
 			color = float16_to_float(colorf16);
@@ -277,16 +273,18 @@ void decompress_symbolic_block(
 	const auto& bm = bsd.get_block_mode(scb.block_mode);
 	const auto& di = bsd.get_decimation_info(bm.decimation_mode);
 
-	int is_dual_plane = bm.is_dual_plane;
+	bool is_dual_plane = static_cast<bool>(bm.is_dual_plane);
 
 	// Unquantize and undecimate the weights
 	int plane1_weights[BLOCK_MAX_TEXELS];
 	int plane2_weights[BLOCK_MAX_TEXELS];
-	unpack_weights(bsd, scb, di, is_dual_plane, bm.get_weight_quant_mode(), plane1_weights, plane2_weights);
+	unpack_weights(bsd, scb, di, is_dual_plane, plane1_weights, plane2_weights);
 
 	// Now that we have endpoint colors and weights, we can unpack texel colors
-	int plane2_component = is_dual_plane ? scb.plane2_component : -1;
+	int plane2_component = scb.plane2_component;
 	vmask4 plane2_mask = vint4::lane_id() == vint4(plane2_component);
+
+	vmask4 u8_mask = get_u8_component_mask(decode_mode, blk);
 
 	for (int i = 0; i < partition_count; i++)
 	{
@@ -298,7 +296,6 @@ void decompress_symbolic_block(
 
 		unpack_color_endpoints(decode_mode,
 		                       scb.color_formats[i],
-		                       scb.get_color_quant_mode(),
 		                       scb.color_values[i],
 		                       rgb_lns, a_lns,
 		                       ep0, ep1);
@@ -310,7 +307,7 @@ void decompress_symbolic_block(
 		{
 			int tix = pi.texels_of_partition[i][j];
 			vint4 weight = select(vint4(plane1_weights[tix]), vint4(plane2_weights[tix]), plane2_mask);
-			vint4 color = lerp_color_int(decode_mode, ep0, ep1, weight);
+			vint4 color = lerp_color_int(u8_mask, ep0, ep1, weight);
 			vfloat4 colorf = decode_texel(color, lns_mask);
 
 			blk.data_r[tix] = colorf.lane<0>();
@@ -347,7 +344,7 @@ float compute_symbolic_block_difference_2plane(
 	// Unquantize and undecimate the weights
 	int plane1_weights[BLOCK_MAX_TEXELS];
 	int plane2_weights[BLOCK_MAX_TEXELS];
-	unpack_weights(bsd, scb, di, true, bm.get_weight_quant_mode(), plane1_weights, plane2_weights);
+	unpack_weights(bsd, scb, di, true, plane1_weights, plane2_weights);
 
 	vmask4 plane2_mask = vint4::lane_id() == vint4(scb.plane2_component);
 
@@ -361,17 +358,18 @@ float compute_symbolic_block_difference_2plane(
 
 	unpack_color_endpoints(config.profile,
 	                       scb.color_formats[0],
-	                       scb.get_color_quant_mode(),
 	                       scb.color_values[0],
 	                       rgb_lns, a_lns,
 	                       ep0, ep1);
+
+	vmask4 u8_mask = get_u8_component_mask(config.profile, blk);
 
 	// Unpack and compute error for each texel in the partition
 	unsigned int texel_count = bsd.texel_count;
 	for (unsigned int i = 0; i < texel_count; i++)
 	{
 		vint4 weight = select(vint4(plane1_weights[i]), vint4(plane2_weights[i]), plane2_mask);
-		vint4 colori = lerp_color_int(config.profile, ep0, ep1, weight);
+		vint4 colori = lerp_color_int(u8_mask, ep0, ep1, weight);
 
 		vfloat4 color = int_to_float(colori);
 		vfloat4 oldColor = blk.texel(i);
@@ -443,7 +441,9 @@ float compute_symbolic_block_difference_1plane(
 
 	// Unquantize and undecimate the weights
 	int plane1_weights[BLOCK_MAX_TEXELS];
-	unpack_weights(bsd, scb, di, false, bm.get_weight_quant_mode(), plane1_weights, nullptr);
+	unpack_weights(bsd, scb, di, false, plane1_weights, nullptr);
+
+	vmask4 u8_mask = get_u8_component_mask(config.profile, blk);
 
 	vfloat4 summa = vfloat4::zero();
 	for (unsigned int i = 0; i < partition_count; i++)
@@ -456,7 +456,6 @@ float compute_symbolic_block_difference_1plane(
 
 		unpack_color_endpoints(config.profile,
 		                       scb.color_formats[i],
-		                       scb.get_color_quant_mode(),
 		                       scb.color_values[i],
 		                       rgb_lns, a_lns,
 		                       ep0, ep1);
@@ -466,7 +465,7 @@ float compute_symbolic_block_difference_1plane(
 		for (unsigned int j = 0; j < texel_count; j++)
 		{
 			unsigned int tix = pi.texels_of_partition[i][j];
-			vint4 colori = lerp_color_int(config.profile, ep0, ep1,
+			vint4 colori = lerp_color_int(u8_mask, ep0, ep1,
 			                              vint4(plane1_weights[tix]));
 
 			vfloat4 color = int_to_float(colori);
@@ -534,8 +533,8 @@ float compute_symbolic_block_difference_1plane_1partition(
 	const decimation_info& di = bsd.get_decimation_info(bm.decimation_mode);
 
 	// Unquantize and undecimate the weights
-	alignas(ASTCENC_VECALIGN) int plane1_weights[BLOCK_MAX_TEXELS];
-	unpack_weights(bsd, scb, di, false, bm.get_weight_quant_mode(), plane1_weights, nullptr);
+	ASTCENC_ALIGNAS int plane1_weights[BLOCK_MAX_TEXELS];
+	unpack_weights(bsd, scb, di, false, plane1_weights, nullptr);
 
 	// Decode the color endpoints for this partition
 	vint4 ep0;
@@ -545,24 +544,16 @@ float compute_symbolic_block_difference_1plane_1partition(
 
 	unpack_color_endpoints(config.profile,
 	                       scb.color_formats[0],
-	                       scb.get_color_quant_mode(),
 	                       scb.color_values[0],
 	                       rgb_lns, a_lns,
 	                       ep0, ep1);
 
-
-	// Pre-shift sRGB so things round correctly
-	if (config.profile == ASTCENC_PRF_LDR_SRGB)
-	{
-		ep0 = asr<8>(ep0);
-		ep1 = asr<8>(ep1);
-	}
+	vmask4 u8_mask = get_u8_component_mask(config.profile, blk);
 
 	// Unpack and compute error for each texel in the partition
 	vfloatacc summav = vfloatacc::zero();
 
 	vint lane_id = vint::lane_id();
-	vint srgb_scale(config.profile == ASTCENC_PRF_LDR_SRGB ? 257 : 1);
 
 	unsigned int texel_count = bsd.texel_count;
 	for (unsigned int i = 0; i < texel_count; i += ASTCENC_SIMD_WIDTH)
@@ -581,11 +572,25 @@ float compute_symbolic_block_difference_1plane_1partition(
 		vint ep0_b = vint(ep0.lane<2>()) * weight0;
 		vint ep0_a = vint(ep0.lane<3>()) * weight0;
 
-		// Shift so things round correctly
-		vint colori_r = asr<6>(ep0_r + ep1_r + vint(32)) * srgb_scale;
-		vint colori_g = asr<6>(ep0_g + ep1_g + vint(32)) * srgb_scale;
-		vint colori_b = asr<6>(ep0_b + ep1_b + vint(32)) * srgb_scale;
-		vint colori_a = asr<6>(ep0_a + ep1_a + vint(32)) * srgb_scale;
+		// Combine contributions
+		vint colori_r = asr<6>(ep0_r + ep1_r + vint(32));
+		vint colori_g = asr<6>(ep0_g + ep1_g + vint(32));
+		vint colori_b = asr<6>(ep0_b + ep1_b + vint(32));
+		vint colori_a = asr<6>(ep0_a + ep1_a + vint(32));
+
+		// If using a U8 decode mode bit replicate top 8 bits
+		// so rest of codec can assume 0xFFFF max range everywhere
+		vint colori_r8 = asr<8>(colori_r) * vint(257);
+		colori_r = select(colori_r, colori_r8, vmask(u8_mask.lane<0>()));
+
+		vint colori_g8 = asr<8>(colori_g) * vint(257);
+		colori_g = select(colori_g, colori_g8, vmask(u8_mask.lane<1>()));
+
+		vint colori_b8 = asr<8>(colori_b) * vint(257);
+		colori_b = select(colori_b, colori_b8, vmask(u8_mask.lane<2>()));
+
+		vint colori_a8 = asr<8>(colori_a) * vint(257);
+		colori_a = select(colori_a, colori_a8, vmask(u8_mask.lane<3>()));
 
 		// Compute color diff
 		vfloat color_r = int_to_float(colori_r);

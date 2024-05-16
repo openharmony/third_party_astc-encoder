@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // ----------------------------------------------------------------------------
-// Copyright 2020-2022 Arm Limited
+// Copyright 2020-2024 Arm Limited
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not
 // use this file except in compliance with the License. You may obtain a copy
@@ -43,10 +43,18 @@
  *       for faster processing. The caller is responsible for creating the worker threads, and
  *       synchronizing between images.
  *
+ * Extended instruction set support
+ * ================================
+ *
+ * This library supports use of extended instruction sets, such as SSE4.1 and AVX2. These are
+ * enabled at compile time when building the library. There is no runtime checking in the core
+ * library that the instruction sets used are actually available. Checking compatibility is the
+ * responsibility of the calling code.
+ *
  * Threading
  * =========
  *
- * In pseudocode, the usage for manual user threading looks like this:
+ * In pseudo-code, the usage for manual user threading looks like this:
  *
  *     // Configure the compressor run
  *     astcenc_config my_config;
@@ -74,7 +82,7 @@
  *
  * The codec supports compressing single images, which can be either 2D images or volumetric 3D
  * images. Calling code is responsible for any handling of aggregate types, such as mipmap chains,
- * texture arrays, or sliced 3D textures
+ * texture arrays, or sliced 3D textures.
  *
  * Images are passed in as an astcenc_image structure. Inputs can be either 8-bit unorm, 16-bit
  * half-float, or 32-bit float, as indicated by the data_type field.
@@ -82,7 +90,7 @@
  * Images can be any dimension; there is no requirement to be a multiple of the ASTC block size.
  *
  * Data is always passed in as 4 color components, and accessed as an array of 2D image slices. Data
- * within an image slice is always tightly packed without padding. Addresing looks like this:
+ * within an image slice is always tightly packed without padding. Addressing looks like this:
  *
  *     data[z_coord][y_coord * x_dim * 4 + x_coord * 4    ]   // Red
  *     data[z_coord][y_coord * x_dim * 4 + x_coord * 4 + 1]   // Green
@@ -112,8 +120,8 @@
  * Input images must contain unit-length normalized and should be passed in using a two component
  * swizzle. The astcenc command line tool defaults to an RRRG swizzle, but some developers prefer
  * to use GGGR for compatability with BC5n which will work just as well. The Z component can be
- * recovered programatically in shader code, using knowledge that the vector is unit length and that
- * Z must be positive for a tangent-space normal map.
+ * recovered programmatically in shader code, using knowledge that the vector is unit length and
+ * that Z must be positive for a tangent-space normal map.
  *
  * Decompress-only usage
  * =====================
@@ -215,8 +223,6 @@ enum astcenc_error {
 	ASTCENC_ERR_OUT_OF_MEM,
 	/** @brief The call failed due to the build using fast math. */
 	ASTCENC_ERR_BAD_CPU_FLOAT,
-	/** @brief The call failed due to the build using an unsupported ISA. */
-	ASTCENC_ERR_BAD_CPU_ISA,
 	/** @brief The call failed due to an out-of-spec parameter. */
 	ASTCENC_ERR_BAD_PARAM,
 	/** @brief The call failed due to an out-of-spec block size. */
@@ -233,6 +239,8 @@ enum astcenc_error {
 	ASTCENC_ERR_BAD_CONTEXT,
 	/** @brief The call failed due to unimplemented functionality. */
 	ASTCENC_ERR_NOT_IMPLEMENTED,
+	/** @brief The call failed due to an out-of-spec decode mode flag set. */
+	ASTCENC_ERR_BAD_DECODE_MODE,
 #if defined(ASTCENC_DIAGNOSTICS)
 	/** @brief The call failed due to an issue with diagnostic tracing. */
 	ASTCENC_ERR_DTRACE_FAILURE,
@@ -265,8 +273,11 @@ static const float ASTCENC_PRE_FAST = 10.0f;
 /** @brief The medium quality search preset. */
 static const float ASTCENC_PRE_MEDIUM = 60.0f;
 
-/** @brief The throrough quality search preset. */
+/** @brief The thorough quality search preset. */
 static const float ASTCENC_PRE_THOROUGH = 98.0f;
+
+/** @brief The thorough quality search preset. */
+static const float ASTCENC_PRE_VERYTHOROUGH = 99.0f;
 
 /** @brief The exhaustive, highest quality, search preset. */
 static const float ASTCENC_PRE_EXHAUSTIVE = 100.0f;
@@ -321,6 +332,11 @@ enum astcenc_type
 };
 
 /**
+ * @brief Function pointer type for compression progress reporting callback.
+ */
+extern "C" typedef void (*astcenc_progress_callback)(float);
+
+/**
  * @brief Enable normal map compression.
  *
  * Input data will be treated a two component normal map, storing X and Y, and the codec will
@@ -331,35 +347,17 @@ enum astcenc_type
 static const unsigned int ASTCENC_FLG_MAP_NORMAL          = 1 << 0;
 
 /**
- * @brief Enable mask map compression.
+ * @brief Enable compression heuristics that assume use of decode_unorm8 decode mode.
  *
- * Input data will be treated a multi-layer mask map, where is is desirable for the color components
- * to be treated independently for the purposes of error analysis.
+ * The decode_unorm8 decode mode rounds differently to the decode_fp16 decode mode, so enabling this
+ * flag during compression will allow the compressor to use the correct rounding when selecting
+ * encodings. This will improve the compressed image quality if your application is using the
+ * decode_unorm8 decode mode, but will reduce image quality if using decode_fp16.
+ *
+ * Note that LDR_SRGB images will always use decode_unorm8 for the RGB channels, irrespective of
+ * this setting.
  */
-static const unsigned int ASTCENC_FLG_MAP_MASK             = 1 << 1;
-
-/**
- * @brief Enable RGBM map compression.
- *
- * Input data will be treated as HDR data that has been stored in an LDR RGBM-encoded wrapper
- * format. Data must be preprocessed by the user to be in LDR RGBM format before calling the
- * compression function, this flag is only used to control the use of RGBM-specific heuristics and
- * error metrics.
- *
- * IMPORTANT: The ASTC format is prone to bad failure modes with unconstrained RGBM data; very small
- * M values can round to zero due to quantization and result in black or white pixels. It is highly
- * recommended that the minimum value of M used in the encoding is kept above a lower threshold (try
- * 16 or 32). Applying this threshold reduces the number of very dark colors that can be
- * represented, but is still higher precision than 8-bit LDR.
- *
- * When this flag is set the value of @c rgbm_m_scale in the context must be set to the RGBM scale
- * factor used during reconstruction. This defaults to 5 when in RGBM mode.
- *
- * It is recommended that the value of @c cw_a_weight is set to twice the value of the multiplier
- * scale, ensuring that the M value is accurately encoded. This defaults to 10 when in RGBM mode,
- * matching the default scale factor.
- */
-static const unsigned int ASTCENC_FLG_MAP_RGBM             = 1 << 6;
+static const unsigned int ASTCENC_FLG_USE_DECODE_UNORM8        = 1 << 1;
 
 /**
  * @brief Enable alpha weighting.
@@ -397,14 +395,37 @@ static const unsigned int ASTCENC_FLG_DECOMPRESS_ONLY      = 1 << 4;
 static const unsigned int ASTCENC_FLG_SELF_DECOMPRESS_ONLY = 1 << 5;
 
 /**
+ * @brief Enable RGBM map compression.
+ *
+ * Input data will be treated as HDR data that has been stored in an LDR RGBM-encoded wrapper
+ * format. Data must be preprocessed by the user to be in LDR RGBM format before calling the
+ * compression function, this flag is only used to control the use of RGBM-specific heuristics and
+ * error metrics.
+ *
+ * IMPORTANT: The ASTC format is prone to bad failure modes with unconstrained RGBM data; very small
+ * M values can round to zero due to quantization and result in black or white pixels. It is highly
+ * recommended that the minimum value of M used in the encoding is kept above a lower threshold (try
+ * 16 or 32). Applying this threshold reduces the number of very dark colors that can be
+ * represented, but is still higher precision than 8-bit LDR.
+ *
+ * When this flag is set the value of @c rgbm_m_scale in the context must be set to the RGBM scale
+ * factor used during reconstruction. This defaults to 5 when in RGBM mode.
+ *
+ * It is recommended that the value of @c cw_a_weight is set to twice the value of the multiplier
+ * scale, ensuring that the M value is accurately encoded. This defaults to 10 when in RGBM mode,
+ * matching the default scale factor.
+ */
+static const unsigned int ASTCENC_FLG_MAP_RGBM             = 1 << 6;
+
+/**
  * @brief The bit mask of all valid flags.
  */
 static const unsigned int ASTCENC_ALL_FLAGS =
-                              ASTCENC_FLG_MAP_MASK |
                               ASTCENC_FLG_MAP_NORMAL |
                               ASTCENC_FLG_MAP_RGBM |
                               ASTCENC_FLG_USE_ALPHA_WEIGHT |
                               ASTCENC_FLG_USE_PERCEPTUAL |
+                              ASTCENC_FLG_USE_DECODE_UNORM8 |
                               ASTCENC_FLG_DECOMPRESS_ONLY |
                               ASTCENC_FLG_SELF_DECOMPRESS_ONLY;
 
@@ -452,7 +473,7 @@ struct astcenc_config
 	 *
 	 * It is recommended that this is set to 1 when using FLG_USE_ALPHA_WEIGHT on a texture that
 	 * will be sampled using linear texture filtering to minimize color bleed out of transparent
-	 * texels that are adjcent to non-transparent texels.
+	 * texels that are adjacent to non-transparent texels.
 	 */
 	unsigned int a_scale_radius;
 
@@ -467,11 +488,25 @@ struct astcenc_config
 	unsigned int tune_partition_count_limit;
 
 	/**
-	 * @brief The maximum number of partitions searched (-partitionindexlimit).
+	 * @brief The maximum number of partitions searched (-2partitionindexlimit).
 	 *
 	 * Valid values are between 1 and 1024.
 	 */
-	unsigned int tune_partition_index_limit;
+	unsigned int tune_2partition_index_limit;
+
+	/**
+	 * @brief The maximum number of partitions searched (-3partitionindexlimit).
+	 *
+	 * Valid values are between 1 and 1024.
+	 */
+	unsigned int tune_3partition_index_limit;
+
+	/**
+	 * @brief The maximum number of partitions searched (-4partitionindexlimit).
+	 *
+	 * Valid values are between 1 and 1024.
+	 */
+	unsigned int tune_4partition_index_limit;
 
 	/**
 	 * @brief The maximum centile for block modes searched (-blockmodelimit).
@@ -491,9 +526,30 @@ struct astcenc_config
 	/**
 	 * @brief The number of trial candidates per mode search (-candidatelimit).
 	 *
-	 * Valid values are between 1 and TUNE_MAX_TRIAL_CANDIDATES (default 4).
+	 * Valid values are between 1 and TUNE_MAX_TRIAL_CANDIDATES.
 	 */
 	unsigned int tune_candidate_limit;
+
+	/**
+	 * @brief The number of trial partitionings per search (-2partitioncandidatelimit).
+	 *
+	 * Valid values are between 1 and TUNE_MAX_PARTITIONING_CANDIDATES.
+	 */
+	unsigned int tune_2partitioning_candidate_limit;
+
+	/**
+	 * @brief The number of trial partitionings per search (-3partitioncandidatelimit).
+	 *
+	 * Valid values are between 1 and TUNE_MAX_PARTITIONING_CANDIDATES.
+	 */
+	unsigned int tune_3partitioning_candidate_limit;
+
+	/**
+	 * @brief The number of trial partitionings per search (-4partitioncandidatelimit).
+	 *
+	 * Valid values are between 1 and TUNE_MAX_PARTITIONING_CANDIDATES.
+	 */
+	unsigned int tune_4partitioning_candidate_limit;
 
 	/**
 	 * @brief The dB threshold for stopping block search (-dblimit).
@@ -503,51 +559,54 @@ struct astcenc_config
 	float tune_db_limit;
 
 	/**
-	 * @brief The amount of overshoot needed to early-out mode 0 fast path.
+	 * @brief The amount of MSE overshoot needed to early-out trials.
 	 *
-	 * We have a fast-path for mode 0 (1 partition, 1 plane) which uses only essential block modes
-	 * as an initital search. This can short-cut compression for simple blocks, but to avoid
-	 * shortcutting too much we* force this to overshoot the MSE threshold needed to hit the
-	 * block-local db_limit e.g. 1.0 = no overshoot, 2.0 = need half the error to trigger.
+	 * The first early-out is for 1 partition, 1 plane trials, where we try a minimal encode using
+	 * the high probability block modes. This can short-cut compression for simple blocks.
+	 *
+	 * The second early-out is for refinement trials, where we can exit refinement once quality is
+	 * reached.
 	 */
-	float tune_mode0_mse_overshoot;
+	float tune_mse_overshoot;
 
 	/**
-	 * @brief The amount of overshoot needed to early-out refinement.
-	 *
-	 * The codec will refine block candidates iteratively to improve the encoding, based on the
-	 * @c tune_refinement_limit count. Earlier implementations will use all refinement iterations,
-	 * even if the target threshold is reached. This tuning parameter allows an early out, but with
-	 * an overshoot MSE threshold. Setting this to 1.0 will early-out as soon as the target is hit,
-	 * but does reduce image quality vs the default behavior of over-refinement.
-	 */
-	float tune_refinement_mse_overshoot;
-
-	/**
-	 * @brief The threshold for skipping 2.2/3.1/3.2/4.1 trials (-2partitionlimitfactor).
+	 * @brief The threshold for skipping 3.1/4.1 trials (-2partitionlimitfactor).
 	 *
 	 * This option is further scaled for normal maps, so it skips less often.
 	 */
-	float tune_2_partition_early_out_limit_factor;
+	float tune_2partition_early_out_limit_factor;
 
 	/**
-	 * @brief The threshold for skipping 3.2/4.1 trials (-3partitionlimitfactor).
+	 * @brief The threshold for skipping 4.1 trials (-3partitionlimitfactor).
 	 *
 	 * This option is further scaled for normal maps, so it skips less often.
 	 */
-	float tune_3_partition_early_out_limit_factor;
+	float tune_3partition_early_out_limit_factor;
 
 	/**
 	 * @brief The threshold for skipping two weight planes (-2planelimitcorrelation).
 	 *
 	 * This option is ineffective for normal maps.
 	 */
-	float tune_2_plane_early_out_limit_correlation;
+	float tune_2plane_early_out_limit_correlation;
 
 	/**
-	 * @brief The threshold below which (inclusive) we stop testing low/high/low+high cutoffs.
+	 * @brief The config enable for the mode0 fast-path search.
+	 *
+	 * If this is set to TUNE_MIN_TEXELS_MODE0 or higher then the early-out fast mode0
+	 * search is enabled. This option is ineffective for 3D block sizes.
 	 */
-	unsigned int tune_low_weight_count_limit;
+	float tune_search_mode0_enable;
+
+	/**
+	 * @brief The progress callback, can be @c nullptr.
+	 *
+	 * If this is specified the codec will peridocially report progress for
+	 * compression as a percentage between 0 and 100. The callback is called from one
+	 * of the compressor threads, so doing significant work in the callback will
+	 * reduce compression performance.
+	 */
+	astcenc_progress_callback progress_callback;
 
 #if defined(ASTCENC_DIAGNOSTICS)
 	/**
@@ -811,7 +870,7 @@ ASTCENC_PUBLIC void astcenc_context_free(
  * advanced content packaging pipelines.
  *
  * @param context   Codec context.
- * @param data      One block of compressesd ASTC data.
+ * @param data      One block of compressed ASTC data.
  * @param info      The output info structure to populate.
  *
  * @return @c ASTCENC_SUCCESS if the block was decoded, or an error otherwise. Note that this
