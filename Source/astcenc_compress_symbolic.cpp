@@ -25,6 +25,9 @@
 #include "astcenc_diagnostic_trace.h"
 
 #include <cassert>
+#ifdef ASTC_CUSTOMIZED_ENABLE
+AstcCustomizedSoManager g_astcCustomizedSoManager;
+#endif
 
 /**
  * @brief Merge two planes of endpoints into a single vector.
@@ -1204,7 +1207,27 @@ void compress_block(
 	float block_is_la_scale = block_is_la ? 1.0f / 1.05f : 1.0f;
 
 	bool block_skip_two_plane = false;
-	int max_partitions = (ctx.config.privateProfile == HIGH_SPEED_PROFILE) ? 1 : ctx.config.tune_partition_count_limit;
+	int max_partitions;
+	if (ctx.config.privateProfile == HIGH_SPEED_PROFILE)
+	{
+		max_partitions = 1;
+	}
+#ifdef ASTC_CUSTOMIZED_ENABLE
+	else if (ctx.config.privateProfile == CUSTOMIZED_PROFILE)
+	{
+		if (!g_astcCustomizedSoManager.LoadSutCustomizedSo() ||
+			g_astcCustomizedSoManager.customizedMaxPartitionsFunc_ == nullptr)
+		{
+			printf("astcenc customized so dlopen failed or customizedMaxPartitionsFunc_ is nullptr!\n");
+			return;
+		}
+		max_partitions = g_astcCustomizedSoManager.customizedMaxPartitionsFunc_();
+	}
+#endif
+	else
+	{
+		max_partitions = ctx.config.tune_partition_count_limit;
+	}
 
 	unsigned int requested_partition_indices[3] {
 		ctx.config.tune_2partition_index_limit,
@@ -1259,13 +1282,28 @@ void compress_block(
 		}
 
 		trace_add_data("exit", "quality hit");
-		if (ctx.config.privateProfile == HIGH_SPEED_PROFILE)
+		if (ctx.config.privateProfile != HIGH_QUALITY_PROFILE)
 		{
 			scb.block_type = SYM_BTYPE_NONCONST;
 			scb.partition_count = 1;
 			scb.color_formats_matched = 0;
 			scb.plane2_component = -1;
-			scb.block_mode = HIGH_SPEED_PROFILE_BLOCK_MODE;
+			if (ctx.config.privateProfile == HIGH_SPEED_PROFILE)
+			{
+				scb.block_mode = HIGH_SPEED_PROFILE_BLOCK_MODE;
+			}
+#ifdef ASTC_CUSTOMIZED_ENABLE
+			else if (ctx.config.privateProfile == CUSTOMIZED_PROFILE)
+			{
+				if (!g_astcCustomizedSoManager.LoadSutCustomizedSo() ||
+					g_astcCustomizedSoManager.customizedBlockModeFunc_ == nullptr)
+				{
+					printf("astcenc customized so dlopen failed or customizedBlockModeFunc_ is nullptr!\n");
+					return;
+				}
+				scb.block_mode = g_astcCustomizedSoManager.customizedBlockModeFunc_();
+			}
+#endif
 			scb.partition_index = 0;
 			scb.quant_mode = QUANT_256;
 			scb.color_formats[0] = 12; // color format is 12 when block mode is HIGH_SPEED_PROFILE_BLOCK_MODE
@@ -1368,7 +1406,7 @@ void compress_block(
 	// alpha is the most likely to be non-correlated if it is present in the data.
 	for (int i = BLOCK_MAX_COMPONENTS - 1; i >= 0; i--)
 	{
-		if (ctx.config.privateProfile == HIGH_SPEED_PROFILE)
+		if (ctx.config.privateProfile != HIGH_QUALITY_PROFILE)
 		{
 			break;
 		}

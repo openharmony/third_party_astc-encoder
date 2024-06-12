@@ -43,6 +43,15 @@ ohos_source_set("astc_encoder_static") {
     "//third_party/astc-encoder/Source/astcenc_weight_align.cpp",
     "//third_party/astc-encoder/Source/astcenc_weight_quant_xfer_tables.cpp",
   ]
+  if (defined(global_parts_info) &&
+      (defined(global_parts_info.graphic_graphic_2d_ext) ||
+       defined(global_parts_info.product_hmos_sdk_product_hmos_sdk))) {
+    defines = [ "ASTC_CUSTOMIZED_ENABLE" ]
+  }
+  if (defined(global_parts_info) &&
+      defined(global_parts_info.product_hmos_sdk_product_hmos_sdk)) {
+    defines += [ "BUILD_HMOS_SDK" ]
+  }
   part_name = "astc-encoder"
   subsystem_name = "thirdparty"
 }
