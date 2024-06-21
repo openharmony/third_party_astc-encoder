@@ -706,11 +706,25 @@ astcenc_error astcenc_context_alloc(
 	}
 
 	bool can_omit_modes = static_cast<bool>(config.flags & ASTCENC_FLG_SELF_DECOMPRESS_ONLY);
+#ifdef ASTC_CUSTOMIZED_ENABLE
+	if (!init_block_size_descriptor(ctx->config.privateProfile, config.block_x, config.block_y, config.block_z,
+	                           can_omit_modes,
+	                           config.tune_partition_count_limit,
+	                           static_cast<float>(config.tune_block_mode_limit) / 100.0f,
+	                           *ctx->bsd))
+	{
+		aligned_free<block_size_descriptor>(ctx->bsd);
+		delete ctxo;
+		*context = nullptr;
+		return ASTCENC_ERR_DLOPEN_FAILED;
+	}
+#else
 	init_block_size_descriptor(ctx->config.privateProfile, config.block_x, config.block_y, config.block_z,
 	                           can_omit_modes,
 	                           config.tune_partition_count_limit,
 	                           static_cast<float>(config.tune_block_mode_limit) / 100.0f,
 	                           *ctx->bsd);
+#endif
 
 #if !defined(ASTCENC_DECOMPRESS_ONLY)
 	// Do setup only needed by compression

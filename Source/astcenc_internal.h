@@ -1262,7 +1262,11 @@ struct astcenc_contexti
  * @param      mode_cutoff              The block mode percentile cutoff [0-1].
  * @param[out] bsd                      The descriptor to initialize.
  */
+#ifdef ASTC_CUSTOMIZED_ENABLE
+bool init_block_size_descriptor(
+#else
 void init_block_size_descriptor(
+#endif
 	QualityProfile privateProfile,
 	unsigned int x_texels,
 	unsigned int y_texels,
