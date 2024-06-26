@@ -31,6 +31,18 @@
 #include <cstdlib>
 #include <limits>
 
+#ifdef ASTC_CUSTOMIZED_ENABLE
+#include <unistd.h>
+#include <string>
+#if defined(_WIN32) && !defined(__CYGWIN__)
+#define NOMINMAX
+#include <windows.h>
+#include <io.h>
+#else
+#include <dlfcn.h>
+#endif
+#endif
+
 #include "astcenc.h"
 #include "astcenc_mathlib.h"
 #include "astcenc_vecmathlib.h"
@@ -2237,5 +2249,166 @@ void aligned_free(T* ptr)
 	free(ptr);
 #endif
 }
+
+#ifdef ASTC_CUSTOMIZED_ENABLE
+#ifdef BUILD_HMOS_SDK
+#if defined(_WIN32) && !defined(__CYGWIN__)
+const LPCSTR g_astcCustomizedSo = "../../hms/toolchains/lib/libastcCustomizedEncode.dll";
+#elif defined(__APPLE__)
+const std::string g_astcCustomizedSo = "../../hms/toolchains/lib/libastcCustomizedEncode.dylib";
+#else
+const std::string g_astcCustomizedSo = "../../hms/toolchains/lib/libastcCustomizedEncode.so";
+#endif
+#else
+const std::string g_astcCustomizedSo = "/system/lib64/module/hms/graphic/libastcCustomizedEncode.z.so";
+#endif
+using IsCustomizedBlockMode = bool (*)(const int);
+using CustomizedMaxPartitions = int (*)();
+using CustomizedBlockMode = int (*)();
+
+class AstcCustomizedSoManager
+{
+public:
+	AstcCustomizedSoManager()
+	{
+		astcCustomizedSoOpened_ = false;
+		astcCustomizedSoHandle_ = nullptr;
+		isCustomizedBlockModeFunc_ = nullptr;
+		customizedMaxPartitionsFunc_ = nullptr;
+		customizedBlockModeFunc_ = nullptr;
+	}
+	~AstcCustomizedSoManager()
+	{
+		if (!astcCustomizedSoOpened_ || astcCustomizedSoHandle_ == nullptr)
+		{
+			printf("astcenc customized so is not be opened when dlclose!\n");
+			return;
+		}
+#if defined(_WIN32) && !defined(__CYGWIN__)
+		if (!FreeLibrary(astcCustomizedSoHandle_))
+		{
+			printf("astc dll FreeLibrary failed: %s\n", g_astcCustomizedSo);
+		}
+#else
+		if (dlclose(astcCustomizedSoHandle_) != 0)
+		{
+			printf("astcenc so dlclose failed: %s\n", g_astcCustomizedSo.c_str());
+		}
+#endif
+	}
+	IsCustomizedBlockMode isCustomizedBlockModeFunc_;
+	CustomizedMaxPartitions customizedMaxPartitionsFunc_;
+	CustomizedBlockMode customizedBlockModeFunc_;
+	bool LoadSutCustomizedSo()
+	{
+		if (!astcCustomizedSoOpened_)
+		{
+#if defined(_WIN32) && !defined(__CYGWIN__)
+			if ((_access(g_astcCustomizedSo, 0) == -1))
+			{
+				printf("astc customized dll(%s) is not found!\n", g_astcCustomizedSo);
+				return false;
+			}
+			astcCustomizedSoHandle_ = LoadLibrary(g_astcCustomizedSo);
+			if (astcCustomizedSoHandle_ == nullptr)
+			{
+				printf("astc libAstcCustomizedEnc LoadLibrary failed!\n");
+				return false;
+			}
+			isCustomizedBlockModeFunc_ =
+				reinterpret_cast<IsCustomizedBlockMode>(GetProcAddress(astcCustomizedSoHandle_,
+				"IsCustomizedBlockMode"));
+			if (isCustomizedBlockModeFunc_ == nullptr)
+			{
+				printf("astc isCustomizedBlockModeFunc_ GetProcAddress failed!\n");
+				if (!FreeLibrary(astcCustomizedSoHandle_))
+				{
+					printf("astc isCustomizedBlockModeFunc_ FreeLibrary failed!\n");
+				}
+				return false;
+			}
+			customizedMaxPartitionsFunc_ =
+				reinterpret_cast<CustomizedMaxPartitions>(GetProcAddress(astcCustomizedSoHandle_,
+				"CustomizedMaxPartitions"));
+			if (customizedMaxPartitionsFunc_ == nullptr)
+			{
+				printf("astc customizedMaxPartitionsFunc_ GetProcAddress failed!\n");
+				if (!FreeLibrary(astcCustomizedSoHandle_))
+				{
+					printf("astc customizedMaxPartitionsFunc_ FreeLibrary failed!\n");
+				}
+				return false;
+			}
+			customizedBlockModeFunc_ =
+				reinterpret_cast<CustomizedBlockMode>(GetProcAddress(astcCustomizedSoHandle_,
+				"CustomizedBlockMode"));
+			if (customizedBlockModeFunc_ == nullptr)
+			{
+				printf("astc customizedBlockModeFunc_ GetProcAddress failed!\n");
+				if (!FreeLibrary(astcCustomizedSoHandle_))
+				{
+					printf("astc customizedBlockModeFunc_ FreeLibrary failed!\n");
+				}
+				return false;
+			}
+			printf("astcenc customized dll load success: %s!\n", g_astcCustomizedSo);
+#else
+			if (access(g_astcCustomizedSo.c_str(), F_OK) == -1)
+			{
+				printf("astc customized so(%s) is not found!\n", g_astcCustomizedSo.c_str());
+				return false;
+			}
+			astcCustomizedSoHandle_ = dlopen(g_astcCustomizedSo.c_str(), 1);
+			if (astcCustomizedSoHandle_ == nullptr)
+			{
+				printf("astc libAstcCustomizedEnc dlopen failed!\n");
+				return false;
+			}
+			isCustomizedBlockModeFunc_ =
+				reinterpret_cast<IsCustomizedBlockMode>(dlsym(astcCustomizedSoHandle_,
+				"IsCustomizedBlockMode"));
+			if (isCustomizedBlockModeFunc_ == nullptr)
+			{
+				printf("astc isCustomizedBlockModeFunc_ dlsym failed!\n");
+				dlclose(astcCustomizedSoHandle_);
+				astcCustomizedSoHandle_ = nullptr;
+				return false;
+			}
+			customizedMaxPartitionsFunc_ =
+				reinterpret_cast<CustomizedMaxPartitions>(dlsym(astcCustomizedSoHandle_,
+				"CustomizedMaxPartitions"));
+			if (customizedMaxPartitionsFunc_ == nullptr)
+			{
+				printf("astc customizedMaxPartitionsFunc_ dlsym failed!\n");
+				dlclose(astcCustomizedSoHandle_);
+				astcCustomizedSoHandle_ = nullptr;
+				return false;
+			}
+			customizedBlockModeFunc_ =
+				reinterpret_cast<CustomizedBlockMode>(dlsym(astcCustomizedSoHandle_,
+				"CustomizedBlockMode"));
+			if (customizedBlockModeFunc_ == nullptr)
+			{
+				printf("astc customizedBlockModeFunc_ dlsym failed!\n");
+				dlclose(astcCustomizedSoHandle_);
+				astcCustomizedSoHandle_ = nullptr;
+				return false;
+			}
+			printf("astcenc customized so dlopen success: %s\n", g_astcCustomizedSo.c_str());
+#endif
+			astcCustomizedSoOpened_ = true;
+		}
+		return true;
+	}
+private:
+	bool astcCustomizedSoOpened_;
+#if defined(_WIN32) && !defined(__CYGWIN__)
+	HINSTANCE astcCustomizedSoHandle_;
+#else
+	void *astcCustomizedSoHandle_;
+#endif
+};
+extern AstcCustomizedSoManager g_astcCustomizedSoManager;
+#endif
 
 #endif
