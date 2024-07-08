@@ -789,8 +789,22 @@ void astcenc_context_free(
 	if (ctxo)
 	{
 		astcenc_contexti* ctx = &ctxo->context;
-		aligned_free<compression_working_buffers>(ctx->working_buffers);
-		aligned_free<block_size_descriptor>(ctx->bsd);
+		if (ctx->working_buffers)
+		{
+			aligned_free<compression_working_buffers>(ctx->working_buffers);
+		}
+		else
+		{
+			printf("ctx->working_buffers is nullptr !!\n");
+		}
+		if (ctx->bsd)
+		{
+			aligned_free<block_size_descriptor>(ctx->bsd);
+		}
+		else
+		{
+			printf("ctx->bsd is nullptr !!\n");
+		}
 #if defined(ASTCENC_DIAGNOSTICS)
 		delete ctx->trace_log;
 #endif
