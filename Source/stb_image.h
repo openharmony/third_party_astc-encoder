@@ -1446,7 +1446,7 @@ STBIDEF stbi_uc *stbi_load_gif_from_memory(stbi_uc const *buffer, int len, int *
    stbi__start_mem(&s,buffer,len);
 
    result = (unsigned char*) stbi__load_gif_main(&s, delays, x, y, z, comp, req_comp);
-   if (stbi__vertically_flip_on_load) {
+   if (stbi__vertically_flip_on_load && result) {
       stbi__vertical_flip_slices( result, *x, *y, *z, *comp );
    }
 
@@ -6991,8 +6991,11 @@ static void *stbi__load_gif_main(stbi__context *s, int **delays, int *x, int *y,
 
             if (out) {
                void *tmp = (stbi_uc*) STBI_REALLOC_SIZED( out, out_size, layers * stride );
-               if (!tmp)
-                  return stbi__load_gif_main_outofmem(&g, out, delays);
+               if (!tmp) {
+                  void *ret = stbi__load_gif_main_outofmem(&g, out, delays);
+                  if (delays && *delays) *delays = 0;
+                  return ret;
+               }
                else {
                    out = (stbi_uc*) tmp;
                    out_size = layers * stride;
@@ -7007,8 +7010,11 @@ static void *stbi__load_gif_main(stbi__context *s, int **delays, int *x, int *y,
                }
             } else {
                out = (stbi_uc*)stbi__malloc( layers * stride );
-               if (!out)
-                  return stbi__load_gif_main_outofmem(&g, out, delays);
+               if (!out) {
+                  void *ret = stbi__load_gif_main_outofmem(&g, out, delays);
+                  if (delays && *delays) *delays = 0;
+                  return ret;
+               }
                out_size = layers * stride;
                if (delays) {
                   *delays = (int*) stbi__malloc( layers * sizeof(int) );
@@ -7019,7 +7025,7 @@ static void *stbi__load_gif_main(stbi__context *s, int **delays, int *x, int *y,
             }
             memcpy( out + ((layers - 1) * stride), u, stride );
             if (layers >= 2) {
-               two_back = out - 2 * stride;
+               two_back = out + (layers - 2) * stride;
             }
 
             if (delays) {
