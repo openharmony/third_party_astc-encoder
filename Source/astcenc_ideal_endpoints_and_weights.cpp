@@ -429,8 +429,8 @@ static void compute_ideal_colors_and_weights_3_comp(
 
 		unsigned int partition_texel_count = pi.partition_texel_count[i];
 
-		vfloat4 lowparam_vec = float4(1e10f, 1e10f, 1e10f, 1e10f);
-		vfloat4 highparam_vec = float4(-1e10f, -1e10f, -1e10f, -1e10f);
+		vfloat4 lowparam_vec = vfloat4(1e10f, 1e10f, 1e10f, 1e10f);
+		vfloat4 highparam_vec = vfloat4(-1e10f, -1e10f, -1e10f, -1e10f);
 		
 		unsigned int j = 0;
 		for (; j + ASTCENC_SIMD_WIDTH <= partition_texel_count; j += ASTCENC_SIMD_WIDTH)

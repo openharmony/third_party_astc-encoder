@@ -177,8 +177,8 @@ static void compute_lowest_and_highest_weight(
 		for (unsigned int j = 1; j < weight_count; j++)
 		{
 			float weight = dec_weight_ideal_value[j];
-			__asm__ volatile("fmax %s0, %s0, %s1" : "+w"(max_weight) : "W"(weight));
-			__asm__ volatile("fmin %s0, %s0, %s1" : "+w"(min_weight) : "W"(weight));
+			__asm__ volatile("fmax %s0, %s0, %s1" : "+w"(max_weight) : "w"(weight));
+			__asm__ volatile("fmin %s0, %s0, %s1" : "+w"(min_weight) : "w"(weight));
 		}
 	}
 

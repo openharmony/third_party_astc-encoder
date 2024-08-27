@@ -210,7 +210,7 @@ static bool realign_weights_undecimated(
 			vfloat4 error_up_vec = vfloat4(error_up0, error_up1, error_up2, error_up3);
 
 			vmask4 check_result_up = (error_up_vec < error_base_vec) & 
-					(error_up_vec < error_down_vec) & (uqw_vec < vin4(64));
+					(error_up_vec < error_down_vec) & (uqw_vec < vint4(64));
 
 			vmask4 check_result_down = (error_down_vec < error_base_vec) & (uqw_vec > vint4::zero());
 			check_result_down = check_result_down & (~check_result_up);
@@ -220,10 +220,10 @@ static bool realign_weights_undecimated(
 				uqw_vec = select(uqw_vec, uqw_up_vec, check_result_up);
 				uqw_vec = select(uqw_vec, uqw_down_vec, check_result_down);
 
-				dec_weights_uquant[texel] = uqw.lane<0>();
-				dec_weights_uquant[texel + 1] = uqw.lane<1>();
-				dec_weights_uquant[texel + 2] = uqw.lane<2>();
-				dec_weights_uquant[texel + 3] = uqw.lane<3>();
+				dec_weights_uquant[texel] = uqw_vec.lane<0>();
+				dec_weights_uquant[texel + 1] = uqw_vec.lane<1>();
+				dec_weights_uquant[texel + 2] = uqw_vec.lane<2>();
+				dec_weights_uquant[texel + 3] = uqw_vec.lane<3>();
 				adjustments = true;
 			}
 		};
