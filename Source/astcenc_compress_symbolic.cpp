@@ -69,6 +69,214 @@ static void merge_endpoints(
  * @param      blk           The image block color data to compress.
  * @param[out] scb           The symbolic compressed block output.
  */
+#if ASTCENC_NEON != 0
+static bool realign_weights_undecimated(
+	astcenc_profile decode_mode,
+	const block_size_descriptor& bsd,
+	const image_block& blk,
+	symbolic_compressed_block& scb
+) {
+	// Get the partition descriptor
+	unsigned int partition_count = scb.partition_count;
+	const auto& pi = bsd.get_partition_info(partition_count, scb.partition_index);
+
+	// Get the quantization table
+	const block_mode& bm = bsd.get_block_mode(scb.block_mode);
+	unsigned int weight_quant_level = bm.quant_mode;
+	const quant_and_transfer_table& qat = quant_and_xfer_tables[weight_quant_level];
+
+	unsigned int max_plane = bm.is_dual_plane;
+	int plane2_component = scb.plane2_component;
+	vmask4 plane_mask = vint4::lane_id() == vint4(plane2_component);
+
+	// Decode the color endpoints
+	bool rgb_hdr;
+	bool alpha_hdr;
+	vint4 endpnt0[BLOCK_MAX_PARTITIONS];
+	vint4 endpnt1[BLOCK_MAX_PARTITIONS];
+	vfloat4 endpnt0f[BLOCK_MAX_PARTITIONS];
+	vfloat4 offset[BLOCK_MAX_PARTITIONS];
+
+	promise(partition_count > 0);
+
+	for (unsigned int pa_idx = 0; pa_idx < partition_count; pa_idx++)
+	{
+		unpack_color_endpoints(decode_mode,
+		                       scb.color_formats[pa_idx],
+		                       scb.color_values[pa_idx],
+		                       rgb_hdr, alpha_hdr,
+		                       endpnt0[pa_idx],
+		                       endpnt1[pa_idx]);
+	}
+
+	uint8_t* dec_weights_uquant = scb.weights;
+	bool adjustments = false;
+
+	// For each plane and partition ...
+	for (unsigned int pl_idx = 0; pl_idx <= max_plane; pl_idx++)
+	{
+		for (unsigned int pa_idx = 0; pa_idx < partition_count; pa_idx++)
+		{
+			// Compute the endpoint delta for all components in current plane
+			vint4 epd = endpnt1[pa_idx] - endpnt0[pa_idx];
+			epd = select(epd, vint4::zero(), plane_mask);
+
+			endpnt0f[pa_idx] = int_to_float(endpnt0[pa_idx]);
+			offset[pa_idx] = int_to_float(epd) * (1.0f / 64.0f);
+		}
+
+		// For each weight compute previous, current, and next errors
+		promise(bsd.texel_count > 0);
+
+		unsigned int texel = 0;
+		for (; texel + ASTCENC_SIMD_WIDTH <= bsd.texel_count; texel += ASTCENC_SIMD_WIDTH)
+		{
+			int uqw0 = dec_weights_uquant[texel];
+			int uqw1 = dec_weights_uquant[texel + 1];
+			int uqw2 = dec_weights_uquant[texel + 2];
+			int uqw3 = dec_weights_uquant[texel + 3];
+
+			vint4 uqw_vec = vint4(uqw0, uqw1, uqw2, uqw3);
+			vint4 prev_and_next_vec = vint4(qat.prev_next_values[uqw0], qat.prev_next_values[uqw1],
+							qat.prev_next_values[uqw2], qat.prev_next_values[uqw3]);
+
+			vint4 mask = vint4(0xFF, 0xFF, 0xFF, 0xFF);
+			vint4 uqw_down_vec = prev_and_next_vec & mask;
+			vint4 uqw_up_vec = vint4(vshrq_n_s32(prev_and_next_vec.m, 8)) & mask;
+
+			vfloat4 weight_base_vec = int_to_float(uqw_vec);
+			vfloat4 weight_down_vec = int_to_float(uqw_down_vec) - weight_base_vec;
+			vfloat4 weight_up_vec = int_to_float(uqw_up_vec) - weight_base_vec;
+
+			unsigned int partition0 = pi.partition_of_texel[texel];
+			unsigned int partition1 = pi.partition_of_texel[texel + 1];
+			unsigned int partition2 = pi.partition_of_texel[texel + 2];
+			unsigned int partition3 = pi.partition_of_texel[texel + 3];
+
+			vfloat4 color_offset0 = offset[partition0];
+			vfloat4 color_offset1 = offset[partition1];
+			vfloat4 color_offset2 = offset[partition2];
+			vfloat4 color_offset3 = offset[partition3];
+
+			vfloat4 color_base0 = endpnt0f[partition0];
+			vfloat4 color_base1 = endpnt0f[partition1];
+			vfloat4 color_base2 = endpnt0f[partition2];
+			vfloat4 color_base3 = endpnt0f[partition3];
+
+			vfloat4 color0 = color_base0 + color_offset0 * weight_base_vec.lane<0>();
+			vfloat4 color1 = color_base1 + color_offset1 * weight_base_vec.lane<1>();
+			vfloat4 color2 = color_base2 + color_offset2 * weight_base_vec.lane<2>();
+			vfloat4 color3 = color_base3 + color_offset3 * weight_base_vec.lane<3>();
+
+			vfloat4 orig_color0 = blk.texel(texel);
+			vfloat4 orig_color1 = blk.texel(texel + 1);
+			vfloat4 orig_color2 = blk.texel(texel + 2);
+			vfloat4 orig_color3 = blk.texel(texel + 3);
+
+			vfloat4 error_weight = blk.channel_weight;
+
+			vfloat4 color_diff0 = color0 - orig_color0;
+			vfloat4 color_diff1 = color1 - orig_color1;
+			vfloat4 color_diff2 = color2 - orig_color2;
+			vfloat4 color_diff3 = color3 - orig_color3;
+
+			vfloat4 color_diff_down0 = color_diff0 + color_offset0 * weight_down_vec.lane<0>();
+			vfloat4 color_diff_down1 = color_diff1 + color_offset1 * weight_down_vec.lane<1>();
+			vfloat4 color_diff_down2 = color_diff2 + color_offset2 * weight_down_vec.lane<2>();
+			vfloat4 color_diff_down3 = color_diff3 + color_offset3 * weight_down_vec.lane<3>();
+			
+			vfloat4 color_diff_up0 = color_diff0 + color_offset0 * weight_up_vec.lane<0>();
+			vfloat4 color_diff_up1 = color_diff1 + color_offset1 * weight_up_vec.lane<1>();
+			vfloat4 color_diff_up2 = color_diff2 + color_offset2 * weight_up_vec.lane<2>();
+			vfloat4 color_diff_up3 = color_diff3 + color_offset3 * weight_up_vec.lane<3>();
+
+			float error_base0 = dot_s(color_diff0 * color_diff0, error_weight);
+			float error_base1 = dot_s(color_diff1 * color_diff1, error_weight);
+			float error_base2 = dot_s(color_diff2 * color_diff2, error_weight);
+			float error_base3 = dot_s(color_diff3 * color_diff3, error_weight);
+
+			float error_down0 = dot_s(color_diff_down0 * color_diff_down0, error_weight);
+			float error_down1 = dot_s(color_diff_down1 * color_diff_down1, error_weight);
+			float error_down2 = dot_s(color_diff_down2 * color_diff_down2, error_weight);
+			float error_down3 = dot_s(color_diff_down3 * color_diff_down3, error_weight);
+
+			float error_up0 = dot_s(color_diff_up0 * color_diff_up0, error_weight);
+			float error_up1 = dot_s(color_diff_up1 * color_diff_up1, error_weight);
+			float error_up2 = dot_s(color_diff_up2 * color_diff_up2, error_weight);
+			float error_up3 = dot_s(color_diff_up3 * color_diff_up3, error_weight);
+
+			vfloat4 error_base_vec = vfloat4(error_base0, error_base1, error_base2, error_base3);
+			vfloat4 error_down_vec = vfloat4(error_down0, error_down1, error_down2, error_down3);
+			vfloat4 error_up_vec = vfloat4(error_up0, error_up1, error_up2, error_up3);
+
+			vmask4 check_result_up = (error_up_vec < error_base_vec) & 
+					(error_up_vec < error_down_vec) & (uqw_vec < vin4(64));
+
+			vmask4 check_result_down = (error_down_vec < error_base_vec) & (uqw_vec > vint4::zero());
+			check_result_down = check_result_down & (~check_result_up);
+
+			if (popcount(check_result_up | check_result_down) != 0)
+			{
+				uqw_vec = select(uqw_vec, uqw_up_vec, check_result_up);
+				uqw_vec = select(uqw_vec, uqw_down_vec, check_result_down);
+
+				dec_weights_uquant[texel] = uqw.lane<0>();
+				dec_weights_uquant[texel + 1] = uqw.lane<1>();
+				dec_weights_uquant[texel + 2] = uqw.lane<2>();
+				dec_weights_uquant[texel + 3] = uqw.lane<3>();
+				adjustments = true;
+			}
+		};
+
+		for (; texel < bsd.texel_count; texel++)
+		{
+			int uqw = dec_weights_uquant[texel];
+
+			uint32_t prev_and_next = qat.prev_next_values[uqw];
+			int uqw_down = prev_and_next & 0xFF;
+			int uqw_up = (prev_and_next >> 8) & 0xFF;
+
+			// Interpolate the colors to create the diffs
+			float weight_base = static_cast<float>(uqw);
+			float weight_down = static_cast<float>(uqw_down - uqw);
+			float weight_up = static_cast<float>(uqw_up - uqw);
+
+			unsigned int partition = pi.partition_of_texel[texel];
+			vfloat4 color_offset = offset[partition];
+			vfloat4 color_base   = endpnt0f[partition];
+
+			vfloat4 color = color_base + color_offset * weight_base;
+			vfloat4 orig_color   = blk.texel(texel);
+			vfloat4 error_weight = blk.channel_weight;
+
+			vfloat4 color_diff      = color - orig_color;
+			vfloat4 color_diff_down = color_diff + color_offset * weight_down;
+			vfloat4 color_diff_up   = color_diff + color_offset * weight_up;
+
+			float error_base = dot_s(color_diff      * color_diff,      error_weight);
+			float error_down = dot_s(color_diff_down * color_diff_down, error_weight);
+			float error_up   = dot_s(color_diff_up   * color_diff_up,   error_weight);
+
+			// Check if the prev or next error is better, and if so use it
+			if ((error_up < error_base) && (error_up < error_down) && (uqw < 64))
+			{
+				dec_weights_uquant[texel] = static_cast<uint8_t>(uqw_up);
+				adjustments = true;
+			}
+			else if ((error_down < error_base) && (uqw > 0))
+			{
+				dec_weights_uquant[texel] = static_cast<uint8_t>(uqw_down);
+				adjustments = true;
+			}
+		}
+
+		// Prepare iteration for plane 2
+		dec_weights_uquant += WEIGHTS_PLANE2_OFFSET;
+		plane_mask = ~plane_mask;
+	}
+	return adjustments;
+}
+#else
 static bool realign_weights_undecimated(
 	astcenc_profile decode_mode,
 	const block_size_descriptor& bsd,
@@ -175,6 +383,7 @@ static bool realign_weights_undecimated(
 
 	return adjustments;
 }
+#endif
 
 /**
  * @brief Attempt to improve weights given a chosen configuration.
@@ -423,7 +632,7 @@ static float compress_symbolic_block_for_partition_1plane(
 
 	// For each mode, use the angular method to compute a shift
 	compute_angular_endpoints_1plane(
-	    only_always, bsd, dec_weights_ideal, max_weight_quant, tmpbuf);
+	    privateProfile, only_always, bsd, dec_weights_ideal, max_weight_quant, tmpbuf);
 
 	float* weight_low_value = tmpbuf.weight_low_value1;
 	float* weight_high_value = tmpbuf.weight_high_value1;
@@ -799,7 +1008,7 @@ static float compress_symbolic_block_for_partition_2planes(
 	float min_wt_cutoff2 = hmin_s(select(err_max, min_ep2, err_mask));
 
 	compute_angular_endpoints_2planes(
-	    bsd, dec_weights_ideal, max_weight_quant, tmpbuf);
+	    privateProfile, bsd, dec_weights_ideal, max_weight_quant, tmpbuf);
 
 	// For each mode (which specifies a decimation and a quantization):
 	//     * Compute number of bits needed for the quantized weights

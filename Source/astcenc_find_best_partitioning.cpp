@@ -250,6 +250,19 @@ static void kmeans_update(
  *
  * @return    The number of bit mismatches.
  */
+#if ASTCENC_NEON != 0
+static inline uint8_t partition_mismatch2(
+	const uint64_t a[2],
+	const uint64_t b[2]
+) {
+	uint64x2_t a01 = vld1q_u64(a);
+	uint64x2_t b01 = vld1q_u64(b);
+	uint64x2_t b10 = vextq_u64(b01, b01, 1);
+	uint8_t c1 = popcount(veorq_u64(a01, b01));
+	uint8_t c2 = popcount(veorq_u64(a01, b10));
+	return static_cast<uint8_t>(astc::min(c1, c2) / 2);
+}
+#else
 static inline uint8_t partition_mismatch2(
 	const uint64_t a[2],
 	const uint64_t b[2]
@@ -261,6 +274,7 @@ static inline uint8_t partition_mismatch2(
 	// in the expected position, and again when present in the wrong partition
 	return static_cast<uint8_t>(astc::min(v1, v2) / 2);
 }
+#endif
 
 /**
  * @brief Compute bit-mismatch for partitioning in 3-partition mode.
