@@ -763,6 +763,8 @@ struct image_block
 	/** @brief The input (compress) or output (decompress) data for the alpha color component. */
 	ASTCENC_ALIGNAS float data_a[BLOCK_MAX_TEXELS];
 
+	partition_metrics pms[BLOCK_MAX_PARTITIONS];
+
 	/** @brief The number of texels in the block. */
 	uint8_t texel_count;
 
@@ -2040,6 +2042,7 @@ void prepare_angular_tables();
  * @param[out] tmpbuf                   Preallocated scratch buffers for the compressor.
  */
 void compute_angular_endpoints_1plane(
+	QualityProfile privateProfile,
 	bool only_always,
 	const block_size_descriptor& bsd,
 	const float* dec_weight_ideal_value,
@@ -2055,6 +2058,7 @@ void compute_angular_endpoints_1plane(
  * @param[out] tmpbuf                   Preallocated scratch buffers for the compressor.
  */
 void compute_angular_endpoints_2planes(
+	QualityProfile privateProfile,
 	const block_size_descriptor& bsd,
 	const float* dec_weight_ideal_value,
 	unsigned int max_weight_quant,

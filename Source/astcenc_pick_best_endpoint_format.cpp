@@ -120,9 +120,99 @@ static void compute_error_squared_rgb_single_partition(
 	vfloat l_bs1(l_pline.bs.lane<1>());
 	vfloat l_bs2(l_pline.bs.lane<2>());
 
-	vint lane_ids = vint::lane_id();
-	for (unsigned int i = 0; i < texel_count; i += ASTCENC_SIMD_WIDTH)
+	vfloat one_third(1/3.0f, 1/3.0f, 1/3.0f, 1/3.0f);
+	vfloat uncor_errv0 = vfloat::zero();
+	vfloat uncor_errv1 = vfloat::zero();
+	vfloat uncor_errv2 = vfloat::zero();
+	vfloat samec_errv0 = vfloat::zero();
+	vfloat samec_errv1 = vfloat::zero();
+	vfloat samec_errv2 = vfloat::zero();
+	vfloat rgbl_errv0 = vfloat::zero();
+	vfloat rgbl_errv1 = vfloat::zero();
+	vfloat rgbl_errv2 = vfloat::zero();
+	vfloat l_errv0 = vfloat::zero();
+	vfloat l_errv1 = vfloat::zero();
+	vfloat l_errv2 = vfloat::zero();
+
+	unsigned int i = 0;
+	for (; i + ASTCENC_SIMD_WIDTH <= texel_count; i += ASTCENC_SIMD_WIDTH)
 	{
+#ifdef ASTCENC_USE_COMMON_GATHERF
+		const uint8_t* tix = texel_indexes + i;
+#else
+		vint tix(texel_indexes + i);
+#endif
+
+		// Compute the error that arises from just ditching alpha
+		vfloat data_a = gatherf(blk.data_a, tix);
+		vfloat alpha_diff = data_a - default_a;
+		alpha_diff = alpha_diff * alpha_diff;
+
+		haccumulate(a_drop_errv, alpha_diff);
+
+		vfloat data_r = gatherf(blk.data_r, tix);
+		vfloat data_g = gatherf(blk.data_g, tix);
+		vfloat data_b = gatherf(blk.data_b, tix);
+
+		vfloat data_rgb_avg = (data_r + data_g + data_b) * one_third;
+		vfloat data_rgb_0 = data_rgb_avg - data_r;
+		vfloat data_rgb_1 = data_rgb_avg - data_g;
+		vfloat data_rgb_2 = data_rgb_avg - data_b;
+
+		// Compute uncorrelated error
+		vfloat param = data_r * uncor_bs0
+		             + data_g * uncor_bs1
+		             + data_b * uncor_bs2;
+
+		vfloat dist0 = (uncor_amod0 + param * uncor_bs0) - data_r;
+		vfloat dist1 = (uncor_amod1 + param * uncor_bs1) - data_g;
+		vfloat dist2 = (uncor_amod2 + param * uncor_bs2) - data_b;
+
+		haccumulate(uncor_errv0, dist0 * dist0);
+		haccumulate(uncor_errv1, dist1 * dist1);
+		haccumulate(uncor_errv2, dist2 * dist2);
+
+		// Compute same chroma error - no "amod", its always zero
+		param = data_r * samec_bs0
+		      + data_g * samec_bs1
+		      + data_b * samec_bs2;
+
+		dist0 = (param * samec_bs0) - data_r;
+		dist1 = (param * samec_bs1) - data_g;
+		dist2 = (param * samec_bs2) - data_b;
+
+		haccumulate(uncor_errv0, dist0 * dist0);
+		haccumulate(uncor_errv1, dist1 * dist1);
+		haccumulate(uncor_errv2, dist2 * dist2);
+
+		// Compute rgbl error
+		dist0 = rgbl_amod0 + data_rgb_0;
+		dist1 = rgbl_amod1 + data_rgb_1;
+		dist2 = rgbl_amod2 + data_rgb_2;
+
+		haccumulate(rgbl_errv0, dist0 * dist0);
+		haccumulate(rgbl_errv1, dist1 * dist1);
+		haccumulate(rgbl_errv2, dist2 * dist2);
+		
+		// Compute luma error - no "amod", its always zero
+		dist0 = data_rgb_0;
+		dist1 = data_rgb_1;
+		dist2 = data_rgb_2;
+
+		haccumulate(l_errv0, dist0 * dist0);
+		haccumulate(l_errv1, dist1 * dist1);
+		haccumulate(l_errv2, dist2 * dist2);
+	}
+
+	uncor_errv = uncor_errv0 * ews.lane<0>() + uncor_errv1 * ews.lane<1>() + uncor_errv2 * ews.lane<2>();
+	samec_errv = samec_errv0 * ews.lane<0>() + samec_errv1 * ews.lane<1>() + samec_errv2 * ews.lane<2>();
+	rgbl_errv = rgbl_errv0 * ews.lane<0>() + rgbl_errv1 * ews.lane<1>() + rgbl_errv2 * ews.lane<2>();
+	l_errv = l_errv0 * ews.lane<0>() + l_errv1 * ews.lane<1>() + l_errv2 * ews.lane<2>();
+
+
+	if (i < texel_count)
+	{
+		vint lane_ids = vint::lane_id() + i;
 		vint tix(texel_indexes + i);
 
 		vmask mask = lane_ids < vint(texel_count);
@@ -138,6 +228,11 @@ static void compute_error_squared_rgb_single_partition(
 		vfloat data_r = gatherf(blk.data_r, tix);
 		vfloat data_g = gatherf(blk.data_g, tix);
 		vfloat data_b = gatherf(blk.data_b, tix);
+
+		vfloat data_rgb_avg = (data_r + data_g + data_b) * one_third;
+		vfloat data_rgb_0 = data_rgb_avg - data_r;
+		vfloat data_rgb_1 = data_rgb_avg - data_g;
+		vfloat data_rgb_2 = data_rgb_avg - data_b;
 
 		// Compute uncorrelated error
 		vfloat param = data_r * uncor_bs0
@@ -170,13 +265,9 @@ static void compute_error_squared_rgb_single_partition(
 		haccumulate(samec_errv, error, mask);
 
 		// Compute rgbl error
-		param = data_r * rgbl_bs0
-		      + data_g * rgbl_bs1
-		      + data_b * rgbl_bs2;
-
-		dist0 = (rgbl_amod0 + param * rgbl_bs0) - data_r;
-		dist1 = (rgbl_amod1 + param * rgbl_bs1) - data_g;
-		dist2 = (rgbl_amod2 + param * rgbl_bs2) - data_b;
+		dist0 = rgbl_amod0 + data_rgb_0;
+		dist1 = rgbl_amod1 + data_rgb_1;
+		dist2 = rgbl_amod2 + data_rgb_2;
 
 		error = dist0 * dist0 * ews.lane<0>()
 		      + dist1 * dist1 * ews.lane<1>()
@@ -185,13 +276,9 @@ static void compute_error_squared_rgb_single_partition(
 		haccumulate(rgbl_errv, error, mask);
 
 		// Compute luma error - no "amod", its always zero
-		param = data_r * l_bs0
-		      + data_g * l_bs1
-		      + data_b * l_bs2;
-
-		dist0 = (param * l_bs0) - data_r;
-		dist1 = (param * l_bs1) - data_g;
-		dist2 = (param * l_bs2) - data_b;
+		dist0 = data_rgb_0;
+		dist1 = data_rgb_1;
+		dist2 = data_rgb_2;
 
 		error = dist0 * dist0 * ews.lane<0>()
 		      + dist1 * dist1 * ews.lane<1>()
@@ -220,6 +307,7 @@ static void compute_error_squared_rgb_single_partition(
  * @param[out] eci   The resulting encoding choice error metrics.
   */
 static void compute_encoding_choice_errors(
+	QualityProfile privateProfile,
 	const image_block& blk,
 	const partition_info& pi,
 	const endpoints& ep,
@@ -228,9 +316,12 @@ static void compute_encoding_choice_errors(
 	int partition_count = pi.partition_count;
 	promise(partition_count > 0);
 
-	partition_metrics pms[BLOCK_MAX_PARTITIONS];
+	partition_metrics *pms = (partition_metrics *)&blk.pms[0];
 
-	compute_avgs_and_dirs_3_comp_rgb(pi, blk, pms);
+	if (!blk.is_constant_channel(3) || (partition_count != 1 && privateProfile == HIGH_QUALITY_PROFILE))
+	{
+		compute_avgs_and_dirs_3_comp_rgb(pi, blk, pms);
+	}
 
 	for (int i = 0; i < partition_count; i++)
 	{
@@ -1133,7 +1224,7 @@ unsigned int compute_ideal_endpoint_formats(
 	// Compute the errors that result from various encoding choices (such as using luminance instead
 	// of RGB, discarding Alpha, using RGB-scale in place of two separate RGB endpoints and so on)
 	encoding_choice_errors eci[BLOCK_MAX_PARTITIONS];
-	compute_encoding_choice_errors(blk, pi, ep, eci);
+	compute_encoding_choice_errors(privateProfile, blk, pi, ep, eci);
 
 	float best_error[BLOCK_MAX_PARTITIONS][21][4];
 	uint8_t format_of_choice[BLOCK_MAX_PARTITIONS][21][4];

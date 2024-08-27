@@ -580,6 +580,25 @@ ASTCENC_SIMD_INLINE int hadd_s(vint4 a)
 }
 
 /**
+ * @brief Return the horizontal sum of a vector.
+ */
+ASTCENC_SIMD_INLINE uint32_t hadd_s(vmask4 a)
+{
+	// Use add with SIMD versions
+	return vaddvq_u32(a.m);
+}
+
+#define ASTCENC_USE_NATIVE_ADDV
+/**
+ * @brief Return the horizontal sum of a vector.
+ */
+ASTCENC_SIMD_INLINE float hadd_rgba_s(vfloat4 a)
+{
+	// Use add with SIMD versions
+	return vaddvq_f32(a.m);
+}
+
+/**
  * @brief Store a vector to a 16B aligned memory address.
  */
 ASTCENC_SIMD_INLINE void storea(vint4 a, int* p)
@@ -631,10 +650,12 @@ ASTCENC_SIMD_INLINE vint4 gatheri(const int* base, vint4 indices)
  */
 ASTCENC_SIMD_INLINE vint4 pack_low_bytes(vint4 a)
 {
-	alignas(16) uint8_t shuf[16] {
-		0, 4, 8, 12,   0, 0, 0, 0,   0, 0, 0, 0,   0, 0, 0, 0
+	uint8x16_t idx = {
+		0, 4, 8, 12,
+		0, 0, 0, 0,
+		0, 0, 0, 0,
+		0, 0, 0, 0
 	};
-	uint8x16_t idx = vld1q_u8(shuf);
 	int8x16_t av = vreinterpretq_s8_s32(a.m);
 	return vint4(vreinterpretq_s32_s8(vqtbl1q_s8(av, idx)));
 }
@@ -1094,6 +1115,30 @@ ASTCENC_SIMD_INLINE void store_lanes_masked(uint8_t* base, vint4 data, vmask4 ma
 ASTCENC_SIMD_INLINE int popcount(uint64_t v)
 {
 	return static_cast<int>(vaddlv_u8(vcnt_u8(vcreate_u8(v))));
+}
+
+/**
+ * @brief Population bit count.
+ *
+ * @param v   The value to population count.
+ *
+ * @return The number of 1 bits.
+ */
+ASTCENC_SIMD_INLINE int popcount(uint64x2_t v)
+{
+	return static_cast<int>(vaddvq_u8(vcntq_u8(vreinterpret_u8_u64(v))));
+}
+
+/**
+ * @brief Population bit count.
+ *
+ * @param v   The value to population count.
+ *
+ * @return The number of 1 bits.
+ */
+ASTCENC_SIMD_INLINE int popcount(vmask4 v)
+{
+	return static_cast<int>(vaddvq_u8(vcntq_u8(vreinterpret_u8_u32(v.m))));
 }
 
 #endif // #ifndef ASTC_VECMATHLIB_NEON_4_H_INCLUDED
