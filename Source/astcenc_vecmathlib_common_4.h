@@ -301,7 +301,7 @@ ASTCENC_SIMD_INLINE float hadd_rgb_s(vfloat4 a)
 	return a.lane<0>() + a.lane<1>() + a.lane<2>();
 }
 
-#if !define(ASTCENC_USE_NATIVE_ADDV)
+#if !defined(ASTCENC_USE_NATIVE_ADDV)
 /**
  * @brief Return the horizontal sum of a vector.
  */

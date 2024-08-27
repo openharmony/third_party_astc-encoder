@@ -1126,7 +1126,7 @@ ASTCENC_SIMD_INLINE int popcount(uint64_t v)
  */
 ASTCENC_SIMD_INLINE int popcount(uint64x2_t v)
 {
-	return static_cast<int>(vaddvq_u8(vcntq_u8(vreinterpret_u8_u64(v))));
+	return static_cast<int>(vaddvq_u8(vcntq_u8(vreinterpretq_u8_u64(v))));
 }
 
 /**
@@ -1138,7 +1138,7 @@ ASTCENC_SIMD_INLINE int popcount(uint64x2_t v)
  */
 ASTCENC_SIMD_INLINE int popcount(vmask4 v)
 {
-	return static_cast<int>(vaddvq_u8(vcntq_u8(vreinterpret_u8_u32(v.m))));
+	return static_cast<int>(vaddvq_u8(vcntq_u8(vreinterpretq_u8_u32(v.m))));
 }
 
 #endif // #ifndef ASTC_VECMATHLIB_NEON_4_H_INCLUDED
