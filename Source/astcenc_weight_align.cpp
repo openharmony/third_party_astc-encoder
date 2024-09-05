@@ -170,7 +170,8 @@ static void compute_lowest_and_highest_weight(
 
 	float max_weight = 1.0f;
 	float min_weight = 0.0f;
-	if (privateProfile == HIGH_QUALITY_PROFILE)
+	// in HIGH_SPEED_PROFILE, max_weight is always equal to 1.0, and min_weight is always equal to 0
+	if (privateProfile != HIGH_SPEED_PROFILE)
 	{
 		max_weight = dec_weight_ideal_value[0];
 		min_weight = dec_weight_ideal_value[0];
@@ -542,13 +543,13 @@ void compute_angular_endpoints_2planes(
 		}
 
 		compute_angular_endpoints_for_quant_levels(
-			privateProfile,
+		    privateProfile,
 		    weight_count,
 		    dec_weight_ideal_value + i * BLOCK_MAX_WEIGHTS,
 		    max_precision, low_values1[i], high_values1[i]);
 
 		compute_angular_endpoints_for_quant_levels(
-			privateProfile,
+		    privateProfile,
 		    weight_count,
 		    dec_weight_ideal_value + i * BLOCK_MAX_WEIGHTS + WEIGHTS_PLANE2_OFFSET,
 		    max_precision, low_values2[i], high_values2[i]);
