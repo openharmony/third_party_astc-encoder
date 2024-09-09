@@ -287,6 +287,12 @@ ASTCENC_SIMD_INLINE void haccumulate(vfloat4& accum, vfloat4 a, vmask4 m)
 	haccumulate(accum, a);
 }
 
+#define ASTCENC_USE_COMMON_GATHERF
+ASTCENC_SIMD_INLINE vfloat4 gatherf(const float* base, const uint8_t* idx)
+{
+	return vfloat4(base[idx[0]], base[idx[1]], base[idx[2]], base[idx[3]]);
+}
+
 /**
  * @brief Return the horizontal sum of RGB vector lanes as a scalar.
  */
@@ -294,6 +300,16 @@ ASTCENC_SIMD_INLINE float hadd_rgb_s(vfloat4 a)
 {
 	return a.lane<0>() + a.lane<1>() + a.lane<2>();
 }
+
+#if !defined(ASTCENC_USE_NATIVE_ADDV)
+/**
+ * @brief Return the horizontal sum of a vector.
+ */
+ASTCENC_SIMD_INLINE float hadd_rgba_s(vfloat4 a)
+{
+	return a.lane<0>() + a.lane<1>() + a.lane<2>() + a.lane<3>();
+}
+#endif
 
 #if !defined(ASTCENC_USE_NATIVE_DOT_PRODUCT)
 
