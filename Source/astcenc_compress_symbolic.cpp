@@ -209,8 +209,8 @@ static bool realign_weights_undecimated(
 			vfloat4 error_down_vec = vfloat4(error_down0, error_down1, error_down2, error_down3);
 			vfloat4 error_up_vec = vfloat4(error_up0, error_up1, error_up2, error_up3);
 
-			vmask4 check_result_up = (error_up_vec < error_base_vec) & 
-					(error_up_vec < error_down_vec) & (uqw_vec < vint4(64));
+			vmask4 check_result_up = (error_up_vec < error_base_vec) &
+			        (error_up_vec < error_down_vec) & (uqw_vec < vint4(64));
 
 			vmask4 check_result_down = (error_down_vec < error_base_vec) & (uqw_vec > vint4::zero());
 			check_result_down = check_result_down & (~check_result_up);
