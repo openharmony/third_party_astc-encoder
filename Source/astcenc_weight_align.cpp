@@ -241,7 +241,6 @@ static void compute_lowest_and_highest_weight(
 
 		rcp_stepsize = rcp_stepsize + vfloat(ASTCENC_SIMD_WIDTH);
 	}
-
 }
 #else
 static void compute_lowest_and_highest_weight(
@@ -472,7 +471,7 @@ void compute_angular_endpoints_1plane(
 		}
 
 		compute_angular_endpoints_for_quant_levels(
-			privateProfile,
+		    privateProfile,
 		    weight_count,
 		    dec_weight_ideal_value + i * BLOCK_MAX_WEIGHTS,
 		    max_precision, low_values[i], high_values[i]);
