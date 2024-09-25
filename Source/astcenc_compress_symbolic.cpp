@@ -222,8 +222,8 @@ static bool realign_weights_undecimated(
 
 				dec_weights_uquant[texel] = uqw_vec.lane<0>();
 				dec_weights_uquant[texel + 1] = uqw_vec.lane<1>();
-				dec_weights_uquant[texel + 2] = uqw_vec.lane<2>();
-				dec_weights_uquant[texel + 3] = uqw_vec.lane<3>();
+				dec_weights_uquant[texel + 2] = uqw_vec.lane<2>();    // channel 2
+				dec_weights_uquant[texel + 3] = uqw_vec.lane<3>();    // channel 3
 				adjustments = true;
 			}
 		};

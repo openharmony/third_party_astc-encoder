@@ -290,7 +290,7 @@ ASTCENC_SIMD_INLINE void haccumulate(vfloat4& accum, vfloat4 a, vmask4 m)
 #define ASTCENC_USE_COMMON_GATHERF
 ASTCENC_SIMD_INLINE vfloat4 gatherf(const float* base, const uint8_t* idx)
 {
-	return vfloat4(base[idx[0]], base[idx[1]], base[idx[2]], base[idx[3]]);
+	return vfloat4(base[idx[0]], base[idx[1]], base[idx[2]], base[idx[3]]);    // index 0,1,2,3
 }
 
 /**
@@ -307,7 +307,7 @@ ASTCENC_SIMD_INLINE float hadd_rgb_s(vfloat4 a)
  */
 ASTCENC_SIMD_INLINE float hadd_rgba_s(vfloat4 a)
 {
-	return a.lane<0>() + a.lane<1>() + a.lane<2>() + a.lane<3>();
+	return a.lane<0>() + a.lane<1>() + a.lane<2>() + a.lane<3>();    // channel 0,1,2,3
 }
 #endif
 
