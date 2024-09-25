@@ -204,11 +204,10 @@ static void compute_error_squared_rgb_single_partition(
 		haccumulate(l_errv2, dist2 * dist2);
 	}
 
-	uncor_errv = uncor_errv0 * ews.lane<0>() + uncor_errv1 * ews.lane<1>() + uncor_errv2 * ews.lane<2>();
-	samec_errv = samec_errv0 * ews.lane<0>() + samec_errv1 * ews.lane<1>() + samec_errv2 * ews.lane<2>();
-	rgbl_errv = rgbl_errv0 * ews.lane<0>() + rgbl_errv1 * ews.lane<1>() + rgbl_errv2 * ews.lane<2>();
-	l_errv = l_errv0 * ews.lane<0>() + l_errv1 * ews.lane<1>() + l_errv2 * ews.lane<2>();
-
+	uncor_errv = uncor_errv0 * ews.lane<0>() + uncor_errv1 * ews.lane<1>() + uncor_errv2 * ews.lane<2>(); // channel 0,1,2
+	samec_errv = samec_errv0 * ews.lane<0>() + samec_errv1 * ews.lane<1>() + samec_errv2 * ews.lane<2>(); // channel 0,1,2
+	rgbl_errv = rgbl_errv0 * ews.lane<0>() + rgbl_errv1 * ews.lane<1>() + rgbl_errv2 * ews.lane<2>(); // channel 0,1,2
+	l_errv = l_errv0 * ews.lane<0>() + l_errv1 * ews.lane<1>() + l_errv2 * ews.lane<2>(); // channel 0,1,2
 
 	if (i < texel_count)
 	{
@@ -316,7 +315,7 @@ static void compute_encoding_choice_errors(
 	int partition_count = pi.partition_count;
 	promise(partition_count > 0);
 
-	partition_metrics *pms = (partition_metrics *)&blk.pms[0];
+	partition_metrics *pms = reinterpret_cast<partition_metrics *>(&blk.pms[0]);
 
 	if (!blk.is_constant_channel(3) || (partition_count != 1 && privateProfile == HIGH_QUALITY_PROFILE))
 	{
