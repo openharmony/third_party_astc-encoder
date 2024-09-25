@@ -364,7 +364,7 @@ static void compute_ideal_colors_and_weights_3_comp(
 	unsigned int texel_count = blk.texel_count;
 	promise(texel_count > 0);
 
-	partition_metrics *pms = (partition_metrics *)&blk.pms[0];
+	partition_metrics *pms = reinterpret_cast<partition_metrics *>(&blk.pms[0]);
 
 	float error_weight;
 	const float* data_vr = nullptr;

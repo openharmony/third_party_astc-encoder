@@ -650,12 +650,7 @@ ASTCENC_SIMD_INLINE vint4 gatheri(const int* base, vint4 indices)
  */
 ASTCENC_SIMD_INLINE vint4 pack_low_bytes(vint4 a)
 {
-	uint8x16_t idx = {
-		0, 4, 8, 12,
-		0, 0, 0, 0,
-		0, 0, 0, 0,
-		0, 0, 0, 0
-	};
+	uint8x16_t idx = {0, 4, 8, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 	int8x16_t av = vreinterpretq_s8_s32(a.m);
 	return vint4(vreinterpretq_s32_s8(vqtbl1q_s8(av, idx)));
 }

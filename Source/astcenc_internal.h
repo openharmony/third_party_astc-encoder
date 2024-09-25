@@ -763,7 +763,7 @@ struct image_block
 	/** @brief The input (compress) or output (decompress) data for the alpha color component. */
 	ASTCENC_ALIGNAS float data_a[BLOCK_MAX_TEXELS];
 
-	partition_metrics pms[BLOCK_MAX_PARTITIONS];
+	mutable partition_metrics pms[BLOCK_MAX_PARTITIONS];
 
 	/** @brief The number of texels in the block. */
 	uint8_t texel_count;
