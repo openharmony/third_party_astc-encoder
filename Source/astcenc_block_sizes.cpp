@@ -821,6 +821,12 @@ static void construct_block_size_descriptor_2d(
 	// Gather all the decimation grids that can be used with the current block
 #if !defined(ASTCENC_DECOMPRESS_ONLY)
 	const float *percentiles = get_2d_percentile_table(x_texels, y_texels);
+    if (percentiles == nullptr) {
+        delete wb;
+#ifdef ASTC_CUSTOMIZED_ENABLE
+        return false;
+#endif
+    }
 	float always_cutoff = (privateProfile != HIGH_QUALITY_PROFILE) ? 1.0f : 0.0f;
 #else
 	// Unused in decompress-only builds
