@@ -73,6 +73,7 @@ static inline uint8_t quant_color(
 	quant_method quant_level,
 	int value
 ) {
+    value = astc::clamp(value, 0, 255); // 255: maximum value
 	int index = value * 2 + 1;
 	return color_unquant_to_uquant_tables[quant_level - QUANT_6][index];
 }
