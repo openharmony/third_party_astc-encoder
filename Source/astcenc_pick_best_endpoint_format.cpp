@@ -917,6 +917,9 @@ static float two_partitions_find_best_combination_for_bitcount(
 
 	if (ql >= QUANT_6)
 	{
+        if (best_integer_count < 2) { // 2: minimum integer_count
+            return ERROR_CALC_DEFAULT;
+        }
 		for (int i = 0; i < 2; i++)
 		{
 			best_formats[i] = best_combined_format[ql][best_integer_count - 2][i];
@@ -1042,6 +1045,9 @@ static float three_partitions_find_best_combination_for_bitcount(
 
 	if (ql >= QUANT_6)
 	{
+        if (best_integer_count < 3) { // 3: minimum integer_count
+            return ERROR_CALC_DEFAULT;
+        }
 		for (int i = 0; i < 3; i++)
 		{
 			best_formats[i] = best_combined_format[ql][best_integer_count - 3][i];
@@ -1178,6 +1184,9 @@ static float four_partitions_find_best_combination_for_bitcount(
 
 	if (ql >= QUANT_6)
 	{
+        if (best_integer_count < 4) { // 4: minimum integer_count
+            return ERROR_CALC_DEFAULT;
+        }
 		for (int i = 0; i < 4; i++)
 		{
 			best_formats[i] = best_combined_format[ql][best_integer_count - 4][i];
