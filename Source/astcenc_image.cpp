@@ -341,7 +341,7 @@ void store_image_block(
 	unsigned int zpos,
 	const astcenc_swizzle& swz
 ) {
-	unsigned int x_size = img.dim_x;
+	unsigned int x_size = img.dim_stride;
 	unsigned int x_start = xpos;
 	unsigned int x_end = astc::min(x_size, xpos + bsd.xdim);
 	unsigned int x_count = x_end - x_start;
