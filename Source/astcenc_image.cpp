@@ -342,6 +342,7 @@ void store_image_block(
 	const astcenc_swizzle& swz
 ) {
 	unsigned int x_size = img.dim_x;
+	unsigned int stride = img.dim_stride;
 	unsigned int x_start = xpos;
 	unsigned int x_end = astc::min(x_size, xpos + bsd.xdim);
 	unsigned int x_count = x_end - x_start;
@@ -375,7 +376,7 @@ void store_image_block(
 
 			for (unsigned int y = y_start; y < y_end; y++)
 			{
-				uint8_t* data8_row = data8 + (4 * x_size * y) + (4 * x_start);
+				uint8_t* data8_row = data8 + (4 * stride * y) + (4 * x_start);
 
 				for (unsigned int x = 0; x < x_count; x += ASTCENC_SIMD_WIDTH)
 				{
@@ -452,7 +453,7 @@ void store_image_block(
 
 			for (unsigned int y = y_start; y < y_end; y++)
 			{
-				uint16_t* data16_row = data16 + (4 * x_size * y) + (4 * x_start);
+				uint16_t* data16_row = data16 + (4 * stride * y) + (4 * x_start);
 
 				for (unsigned int x = 0; x < x_count; x++)
 				{
@@ -514,7 +515,7 @@ void store_image_block(
 
 			for (unsigned int y = y_start; y < y_end; y++)
 			{
-				float* data32_row = data32 + (4 * x_size * y) + (4 * x_start);
+				float* data32_row = data32 + (4 * stride * y) + (4 * x_start);
 
 				for (unsigned int x = 0; x < x_count; x++)
 				{
