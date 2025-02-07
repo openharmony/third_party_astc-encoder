@@ -2264,7 +2264,11 @@ const std::string g_astcCustomizedSo = "../../hms/toolchains/lib/libastcCustomiz
 const std::string g_astcCustomizedSo = "../../hms/toolchains/lib/libastcCustomizedEncode.so";
 #endif
 #else
+#ifdef SUT_PATH_X64
 const std::string g_astcCustomizedSo = "/system/lib64/module/hms/graphic/libastcCustomizedEncode.z.so";
+#else
+const std::string g_astcCustomizedSo = "/system/lib/module/hms/graphic/libastcCustomizedEncode.z.so";
+#endif
 #endif
 using IsCustomizedBlockMode = bool (*)(const int);
 using CustomizedMaxPartitions = int (*)();
