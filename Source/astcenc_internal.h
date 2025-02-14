@@ -30,6 +30,7 @@
 #endif
 #include <cstdlib>
 #include <limits>
+#include <mutex>
 
 #ifdef ASTC_CUSTOMIZED_ENABLE
 #include <unistd.h>
@@ -2309,6 +2310,7 @@ public:
 	CustomizedBlockMode customizedBlockModeFunc_;
 	bool LoadSutCustomizedSo()
 	{
+		std::lock_guard<std::mutex> lock(astcCustomizedSoMutex_);
 		if (!astcCustomizedSoOpened_)
 		{
 #if defined(_WIN32) && !defined(__CYGWIN__)
@@ -2415,6 +2417,7 @@ private:
 #else
 	void *astcCustomizedSoHandle_;
 #endif
+    std::mutex astcCustomizedSoMutex_;
 };
 extern AstcCustomizedSoManager g_astcCustomizedSoManager;
 #endif
