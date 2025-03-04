@@ -35,6 +35,37 @@
 #ifdef ASTC_CUSTOMIZED_ENABLE
 #include <unistd.h>
 #include <string>
+#include "hilog/log.h"
+#define ASTCENC_LOG_DOMAIN 0x2102
+#define ASTCENC_OHOS_LOG_TAG "astcenc"
+
+#ifdef MS_COMPILE_WITH_OHOS_NDK
+#define ASTCENC_DEBUG(content, args...) \
+  { OH_LOG_Print(LOG_APP, LOG_DEBUG, ASTCENC_LOG_DOMAIN, ASTCENC_OHOS_LOG_TAG, \
+  "%s:%d " #content, __func__, __LINE__, ##args); }
+#define ASTCENC_WARN(content, args...) \
+  { OH_LOG_Print(LOG_APP, LOG_WARN, ASTCENC_LOG_DOMAIN, ASTCENC_OHOS_LOG_TAG, \
+  "%s:%d " #content, __func__, __LINE__, ##args); }
+#define ASTCENC_INFO(content, args...) \
+  { OH_LOG_Print(LOG_APP, LOG_INFO, ASTCENC_LOG_DOMAIN, ASTCENC_OHOS_LOG_TAG, \
+  "%s:%d " #content, __func__, __LINE__, ##args); }
+#define ASTCENC_ERROR(content, args...) \
+  { OH_LOG_Print(LOG_APP, LOG_ERROR, ASTCENC_LOG_DOMAIN, ASTCENC_OHOS_LOG_TAG, \
+  "%s:%d " #content, __func__, __LINE__, ##args); }
+#else
+#define ASTCENC_DEBUG(content, args...) \
+  { HiLogPrint(LOG_APP, LOG_DEBUG, ASTCENC_LOG_DOMAIN, ASTCENC_OHOS_LOG_TAG, \
+  "%s:%d " #content, __func__, __LINE__, ##args); }
+#define ASTCENC_WARN(content, args...) \
+  { HiLogPrint(LOG_APP, LOG_WARN, ASTCENC_LOG_DOMAIN, ASTCENC_OHOS_LOG_TAG, \
+  "%s:%d " #content, __func__, __LINE__, ##args); }
+#define ASTCENC_INFO(content, args...) \
+  { HiLogPrint(LOG_APP, LOG_INFO, ASTCENC_LOG_DOMAIN, ASTCENC_OHOS_LOG_TAG, \
+  "%s:%d " #content, __func__, __LINE__, ##args); }
+#define ASTCENC_ERROR(content, args...) \
+  { HiLogPrint(LOG_APP, LOG_ERROR, ASTCENC_LOG_DOMAIN, ASTCENC_OHOS_LOG_TAG, \
+  "%s:%d " #content, __func__, __LINE__, ##args); }
+#endif
 #if defined(_WIN32) && !defined(__CYGWIN__)
 #define NOMINMAX
 #include <windows.h>
@@ -2290,18 +2321,18 @@ public:
 	{
 		if (!astcCustomizedSoOpened_ || astcCustomizedSoHandle_ == nullptr)
 		{
-			printf("astcenc customized so is not be opened when dlclose!\n");
+			ASTCENC_DEBUG("astcenc customized so is not opened when dlclose!");
 			return;
 		}
 #if defined(_WIN32) && !defined(__CYGWIN__)
 		if (!FreeLibrary(astcCustomizedSoHandle_))
 		{
-			printf("astc dll FreeLibrary failed: %s\n", g_astcCustomizedSo);
+			ASTCENC_ERROR("astc dll FreeLibrary failed: %{public}s", g_astcCustomizedSo);
 		}
 #else
 		if (dlclose(astcCustomizedSoHandle_) != 0)
 		{
-			printf("astcenc so dlclose failed: %s\n", g_astcCustomizedSo.c_str());
+			ASTCENC_ERROR("astcenc so dlclose failed: %{public}s", g_astcCustomizedSo.c_str());
 		}
 #endif
 	}
@@ -2316,13 +2347,13 @@ public:
 #if defined(_WIN32) && !defined(__CYGWIN__)
 			if ((_access(g_astcCustomizedSo, 0) == -1))
 			{
-				printf("astc customized dll(%s) is not found!\n", g_astcCustomizedSo);
+				ASTCENC_WARN("astc customized dll(%{public}s) is not found!", g_astcCustomizedSo);
 				return false;
 			}
 			astcCustomizedSoHandle_ = LoadLibrary(g_astcCustomizedSo);
 			if (astcCustomizedSoHandle_ == nullptr)
 			{
-				printf("astc libAstcCustomizedEnc LoadLibrary failed!\n");
+				ASTCENC_ERROR("astc libAstcCustomizedEnc LoadLibrary failed!");
 				return false;
 			}
 			isCustomizedBlockModeFunc_ =
@@ -2330,10 +2361,10 @@ public:
 				"IsCustomizedBlockMode"));
 			if (isCustomizedBlockModeFunc_ == nullptr)
 			{
-				printf("astc isCustomizedBlockModeFunc_ GetProcAddress failed!\n");
+				ASTCENC_ERROR("astc isCustomizedBlockModeFunc_ GetProcAddress failed!");
 				if (!FreeLibrary(astcCustomizedSoHandle_))
 				{
-					printf("astc isCustomizedBlockModeFunc_ FreeLibrary failed!\n");
+					ASTCENC_ERROR("astc isCustomizedBlockModeFunc_ FreeLibrary failed!");
 				}
 				return false;
 			}
@@ -2342,10 +2373,10 @@ public:
 				"CustomizedMaxPartitions"));
 			if (customizedMaxPartitionsFunc_ == nullptr)
 			{
-				printf("astc customizedMaxPartitionsFunc_ GetProcAddress failed!\n");
+				ASTCENC_ERROR("astc customizedMaxPartitionsFunc_ GetProcAddress failed!");
 				if (!FreeLibrary(astcCustomizedSoHandle_))
 				{
-					printf("astc customizedMaxPartitionsFunc_ FreeLibrary failed!\n");
+					ASTCENC_ERROR("astc customizedMaxPartitionsFunc_ FreeLibrary failed!");
 				}
 				return false;
 			}
@@ -2354,24 +2385,24 @@ public:
 				"CustomizedBlockMode"));
 			if (customizedBlockModeFunc_ == nullptr)
 			{
-				printf("astc customizedBlockModeFunc_ GetProcAddress failed!\n");
+				ASTCENC_ERROR("astc customizedBlockModeFunc_ GetProcAddress failed!");
 				if (!FreeLibrary(astcCustomizedSoHandle_))
 				{
-					printf("astc customizedBlockModeFunc_ FreeLibrary failed!\n");
+					ASTCENC_ERROR("astc customizedBlockModeFunc_ FreeLibrary failed!");
 				}
 				return false;
 			}
-			printf("astcenc customized dll load success: %s!\n", g_astcCustomizedSo);
+			ASTCENC_INFO("astcenc customized dll load success: %{public}s!", g_astcCustomizedSo);
 #else
 			if (access(g_astcCustomizedSo.c_str(), F_OK) == -1)
 			{
-				printf("astc customized so(%s) is not found!\n", g_astcCustomizedSo.c_str());
+				ASTCENC_WARN("astc customized so(%{public}s) is not found!", g_astcCustomizedSo.c_str());
 				return false;
 			}
 			astcCustomizedSoHandle_ = dlopen(g_astcCustomizedSo.c_str(), 1);
 			if (astcCustomizedSoHandle_ == nullptr)
 			{
-				printf("astc libAstcCustomizedEnc dlopen failed!\n");
+				ASTCENC_ERROR("astc libAstcCustomizedEnc dlopen failed!");
 				return false;
 			}
 			isCustomizedBlockModeFunc_ =
@@ -2379,7 +2410,7 @@ public:
 				"IsCustomizedBlockMode"));
 			if (isCustomizedBlockModeFunc_ == nullptr)
 			{
-				printf("astc isCustomizedBlockModeFunc_ dlsym failed!\n");
+				ASTCENC_ERROR("astc isCustomizedBlockModeFunc_ dlsym failed!");
 				dlclose(astcCustomizedSoHandle_);
 				astcCustomizedSoHandle_ = nullptr;
 				return false;
@@ -2389,7 +2420,7 @@ public:
 				"CustomizedMaxPartitions"));
 			if (customizedMaxPartitionsFunc_ == nullptr)
 			{
-				printf("astc customizedMaxPartitionsFunc_ dlsym failed!\n");
+				ASTCENC_ERROR("astc customizedMaxPartitionsFunc_ dlsym failed!");
 				dlclose(astcCustomizedSoHandle_);
 				astcCustomizedSoHandle_ = nullptr;
 				return false;
@@ -2399,12 +2430,12 @@ public:
 				"CustomizedBlockMode"));
 			if (customizedBlockModeFunc_ == nullptr)
 			{
-				printf("astc customizedBlockModeFunc_ dlsym failed!\n");
+				ASTCENC_ERROR("astc customizedBlockModeFunc_ dlsym failed!");
 				dlclose(astcCustomizedSoHandle_);
 				astcCustomizedSoHandle_ = nullptr;
 				return false;
 			}
-			printf("astcenc customized so dlopen success: %s\n", g_astcCustomizedSo.c_str());
+			ASTCENC_INFO("astcenc customized so dlopen success: %{public}s", g_astcCustomizedSo.c_str());
 #endif
 			astcCustomizedSoOpened_ = true;
 		}
