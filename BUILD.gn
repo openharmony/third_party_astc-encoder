@@ -55,6 +55,7 @@ ohos_source_set("astc_encoder_static") {
       defined(global_parts_info.product_hmos_sdk_product_hmos_sdk)) {
     defines += [ "BUILD_HMOS_SDK" ]
   }
+  external_deps = [ "hilog:libhilog" ]
   part_name = "astc-encoder"
   subsystem_name = "thirdparty"
 }
