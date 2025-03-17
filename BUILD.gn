@@ -47,6 +47,9 @@ ohos_source_set("astc_encoder_static") {
       (defined(global_parts_info.graphic_graphic_2d_ext) ||
        defined(global_parts_info.product_hmos_sdk_product_hmos_sdk))) {
     defines = [ "ASTC_CUSTOMIZED_ENABLE" ]
+    sources += [
+      "//third_party/astc-encoder/Source/astcenccli_platform_dependents.cpp",
+    ]
     if (target_cpu == "arm64" || is_emulator) {
       defines += [ "SUT_PATH_X64" ]
     }
@@ -55,7 +58,6 @@ ohos_source_set("astc_encoder_static") {
       defined(global_parts_info.product_hmos_sdk_product_hmos_sdk)) {
     defines += [ "BUILD_HMOS_SDK" ]
   }
-  external_deps = [ "hilog:libhilog" ]
   part_name = "astc-encoder"
   subsystem_name = "thirdparty"
 }
