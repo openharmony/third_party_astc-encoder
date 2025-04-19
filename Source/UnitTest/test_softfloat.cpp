@@ -21,7 +21,7 @@
 
 #include "gtest/gtest.h"
 
-#include "../astcenc_internal.h"
+#include "//third_party/astc-encoder/Source/astcenc_internal.h"
 
 namespace astcenc
 {
