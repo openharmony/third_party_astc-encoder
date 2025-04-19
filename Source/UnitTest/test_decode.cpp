@@ -23,7 +23,7 @@
 
 #include "gtest/gtest.h"
 
-#include "../astcenc.h"
+#include "//third_party/astc-encoder/Source/astcenc.h"
 
 namespace astcenc
 {
