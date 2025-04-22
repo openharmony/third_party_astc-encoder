@@ -26,9 +26,9 @@
 #define ASTCENC_F16C 1
 #define ASTCENC_SSE 41
 
-#include "../Source/astcenc_mathlib.cpp"
-#include "../Source/astcenc_color_unquantize.cpp"
-#include "../Source/astcenc_decompress_symbolic.cpp"
+#include "//third_party/astc-encoder/Source/astcenc_mathlib.cpp"
+#include "//third_party/astc-encoder/Source/astcenc_color_unquantize.cpp"
+#include "//third_party/astc-encoder/Source/astcenc_decompress_symbolic.cpp"
 
 int main()
 {
