@@ -23,8 +23,8 @@
 
 #include "gtest/gtest.h"
 
-#include "../astcenc_internal.h"
-#include "../astcenc_vecmathlib.h"
+#include "//third_party/astc-encoder/Source/astcenc_internal.h"
+#include "//third_party/astc-encoder/Source/astcenc_vecmathlib.h"
 
 namespace astcenc
 {
