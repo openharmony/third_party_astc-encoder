@@ -821,7 +821,8 @@ static float compress_symbolic_block_for_partition_1plane(
 			workscb.quant_mode = workscb.color_formats_matched ? color_quant_level_mod[i] : color_quant_level[i];
 			workscb.block_mode = qw_bm.mode_index;
 			workscb.block_type = SYM_BTYPE_NONCONST;
-			if (privateProfile == HIGH_SPEED_PROFILE)
+			if (privateProfile == HIGH_SPEED_PROFILE ||
+				privateProfile == HIGH_SPEED_PROFILE_HIGHBITS)
 			{
 				workscb.errorval = 0;
 				scb = workscb;
@@ -1417,7 +1418,8 @@ void compress_block(
 
 	bool block_skip_two_plane = false;
 	int max_partitions;
-	if (ctx.config.privateProfile == HIGH_SPEED_PROFILE)
+	if (ctx.config.privateProfile == HIGH_SPEED_PROFILE ||
+		ctx.config.privateProfile == HIGH_SPEED_PROFILE_HIGHBITS)
 	{
 		max_partitions = 1;
 	}
@@ -1491,7 +1493,8 @@ void compress_block(
 		}
 
 		trace_add_data("exit", "quality hit");
-		if (ctx.config.privateProfile != HIGH_QUALITY_PROFILE)
+		if (ctx.config.privateProfile != HIGH_QUALITY_PROFILE &&
+			ctx.config.privateProfile != HIGH_SPEED_PROFILE_HIGHBITS)
 		{
 			scb.block_type = SYM_BTYPE_NONCONST;
 			scb.partition_count = 1;
@@ -1598,7 +1601,9 @@ void compress_block(
 		quant_limit = bm.get_weight_quant_mode();
 
 		best_errorvals_for_pcount[0] = astc::min(best_errorvals_for_pcount[0], errorval);
-		if ((ctx.config.privateProfile == HIGH_SPEED_PROFILE) || (errorval < (error_threshold * errorval_mult[i])))
+		if ((ctx.config.privateProfile == HIGH_SPEED_PROFILE ||
+			ctx.config.privateProfile == HIGH_SPEED_PROFILE_HIGHBITS) ||
+			(errorval < (error_threshold * errorval_mult[i])))
 		{
 			trace_add_data("exit", "quality hit");
 			goto END_OF_TESTS;
