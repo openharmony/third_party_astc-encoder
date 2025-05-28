@@ -171,7 +171,8 @@ static void compute_lowest_and_highest_weight(
 	float max_weight = 1.0f;
 	float min_weight = 0.0f;
 	// in HIGH_SPEED_PROFILE, max_weight is always equal to 1.0, and min_weight is always equal to 0
-	if (privateProfile != HIGH_SPEED_PROFILE)
+	if (privateProfile != HIGH_SPEED_PROFILE &&
+		privateProfile != HIGH_SPEED_PROFILE_HIGHBITS)
 	{
 		max_weight = dec_weight_ideal_value[0];
 		min_weight = dec_weight_ideal_value[0];
@@ -195,7 +196,8 @@ static void compute_lowest_and_highest_weight(
 		vfloat maxidx = vfloat::zero();
 		vfloat minidx = vfloat::zero();
 
-		if (privateProfile == HIGH_SPEED_PROFILE)
+		if (privateProfile == HIGH_SPEED_PROFILE ||
+			privateProfile == HIGH_SPEED_PROFILE_HIGHBITS)
 		{
 			maxidx = round((vfloat)vaddq_f32(rcp_stepsize.m, offset.m));
 			minidx = round(offset);
