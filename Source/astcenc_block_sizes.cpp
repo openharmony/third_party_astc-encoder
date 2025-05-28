@@ -863,7 +863,9 @@ static void construct_block_size_descriptor_2d(
 			{
 				continue;
 			}
-			if ((privateProfile == HIGH_SPEED_PROFILE) && (i != HIGH_SPEED_PROFILE_BLOCK_MODE))
+			if ((privateProfile == HIGH_SPEED_PROFILE ||
+				privateProfile == HIGH_SPEED_PROFILE_HIGHBITS) &&
+				(i != HIGH_SPEED_PROFILE_BLOCK_MODE))
 			{
 				continue;
 			}
@@ -948,7 +950,8 @@ static void construct_block_size_descriptor_2d(
 			if (decimation_mode < 0)
 			{
 				construct_dt_entry_2d(x_texels, y_texels, x_weights, y_weights, bsd, *wb, packed_dm_idx);
-				if (privateProfile == HIGH_SPEED_PROFILE)
+				if (privateProfile == HIGH_SPEED_PROFILE ||
+					privateProfile == HIGH_SPEED_PROFILE_HIGHBITS)
 				{
 					bsd.decimation_modes[packed_dm_idx].maxprec_1plane = 4; // Speed optimization: max prec num is limited to 4
 				}
