@@ -27,6 +27,12 @@
 #include "astcenc_internal_entry.h"
 #include "astcenc_diagnostic_trace.h"
 
+// RGBA数据存储格式说明（内存布局/位分配）
+constexpr uint8_t COMPONENT_NUM = 4;
+constexpr uint8_t COMP_G_SHIFT_POSITION = 10;
+constexpr uint8_t COMP_B_SHIFT_POSITION = 20;
+constexpr uint8_t COMP_A_SHIFT_POSITION = 30;
+
 /**
  * @brief Record of the quality tuning parameter values.
  *
@@ -1056,6 +1062,49 @@ static void compute_averages(
 
 #endif
 
+static void free_image_inside(astcenc_image* img)
+{
+	if (img->data != nullptr)
+	{
+		for (unsigned int z = 0; z < img->dim_z; z++)
+		{
+			delete[] reinterpret_cast<char *>(img->data[z]);
+			img->data[z] = nullptr;
+		}
+	}
+	delete[] img->data;
+	img->data = nullptr;
+}
+
+static void convert_rgba10_to_float16(astcenc_image* imgRGBA, astcenc_image* image)
+{
+	uint32_t* src = static_cast<uint32_t *>(image->data[0]);
+	uint16_t* dst = static_cast<uint16_t *>(imgRGBA->data[0]);
+	for (unsigned int y = 0; y < image->dim_y; y++)
+	{
+		for (unsigned int x = 0; x < image->dim_x; x++)
+		{
+			uint32_t data_rgba = src[image->dim_stride * y + x];
+			uint16_t data_r = data_rgba & 0x3FF;
+			uint16_t data_g = (data_rgba >> COMP_G_SHIFT_POSITION) & 0x3FF;
+			uint16_t data_b = (data_rgba >> COMP_B_SHIFT_POSITION) & 0x3FF;
+			uint16_t data_a = (data_rgba >> COMP_A_SHIFT_POSITION) & 0x3;
+			vint4 colorf16 = float_to_float16(vfloat4(data_r / 1023.0, // 1023.0: 10bit to 0-1
+							data_g / 1023.0,
+							data_b / 1023.0,
+							data_a / 3.0)); // 3.0: 2bit to 0-1
+			dst[(COMPONENT_NUM * image->dim_x * y) + (COMPONENT_NUM * x)] =
+				static_cast<uint16_t>(colorf16.lane<0>()); // 0: R
+			dst[(COMPONENT_NUM * image->dim_x * y) + (COMPONENT_NUM * x + 1)] = // 1: G
+				static_cast<uint16_t>(colorf16.lane<1>()); // 1: G
+			dst[(COMPONENT_NUM * image->dim_x * y) + (COMPONENT_NUM * x + 2)] = // 2: B
+				static_cast<uint16_t>(colorf16.lane<2>()); // 2: B
+			dst[(COMPONENT_NUM * image->dim_x * y) + (COMPONENT_NUM * x + 3)] = // 3: A
+				static_cast<uint16_t>(colorf16.lane<3>()); // 3: A
+		}
+	}
+}
+
 /* See header for documentation. */
 astcenc_error astcenc_compress_image(
 	astcenc_context* ctxo,
@@ -1080,21 +1129,49 @@ astcenc_error astcenc_compress_image(
 #else
 	astcenc_contexti* ctx = &ctxo->context;
 	astcenc_error status;
-	astcenc_image& image = *imagep;
+	astcenc_image* image = imagep;
+
+	astcenc_image imgRGBA = {};
+	imgRGBA.data = nullptr;
+	if (image->data_type == ASTCENC_TYPE_RGBA1010102)
+	{
+		imgRGBA.dim_x = image->dim_x;
+		imgRGBA.dim_y = image->dim_y;
+		imgRGBA.dim_stride = imgRGBA.dim_x;
+		imgRGBA.dim_z = 1;
+		imgRGBA.data_type = ASTCENC_TYPE_F16;
+		imgRGBA.data = new(std::nothrow) void* [imgRGBA.dim_z];
+		if (imgRGBA.data == nullptr)
+		{
+			return ASTCENC_ERR_OUT_OF_MEM;
+		}
+		imgRGBA.data[0] = new(std::nothrow)
+			uint16_t[imgRGBA.dim_x * imgRGBA.dim_y * COMPONENT_NUM];
+		if (imgRGBA.data[0] == nullptr)
+		{
+			free_image_inside(&imgRGBA);
+			return ASTCENC_ERR_OUT_OF_MEM;
+		}
+		convert_rgba10_to_float16(&imgRGBA, imagep);
+		image = &imgRGBA;
+	}
 
 	if (ctx->config.flags & ASTCENC_FLG_DECOMPRESS_ONLY)
 	{
+		free_image_inside(&imgRGBA);
 		return ASTCENC_ERR_BAD_CONTEXT;
 	}
 
 	status = validate_compression_swizzle(*swizzle);
 	if (status != ASTCENC_SUCCESS)
 	{
+		free_image_inside(&imgRGBA);
 		return status;
 	}
 
 	if (thread_index >= ctx->thread_count)
 	{
+		free_image_inside(&imgRGBA);
 		return ASTCENC_ERR_BAD_PARAM;
 	}
 
@@ -1102,14 +1179,15 @@ astcenc_error astcenc_compress_image(
 	unsigned int block_y = ctx->config.block_y;
 	unsigned int block_z = ctx->config.block_z;
 
-	unsigned int xblocks = (image.dim_x + block_x - 1) / block_x;
-	unsigned int yblocks = (image.dim_y + block_y - 1) / block_y;
-	unsigned int zblocks = (image.dim_z + block_z - 1) / block_z;
+	unsigned int xblocks = (image->dim_x + block_x - 1) / block_x;
+	unsigned int yblocks = (image->dim_y + block_y - 1) / block_y;
+	unsigned int zblocks = (image->dim_z + block_z - 1) / block_z;
 
 	// Check we have enough output space (16 bytes per block)
 	size_t size_needed = xblocks * yblocks * zblocks * 16;
 	if (data_len < size_needed)
 	{
+		free_image_inside(&imgRGBA);
 		return ASTCENC_ERR_OUT_OF_MEM;
 	}
 
@@ -1121,15 +1199,17 @@ astcenc_error astcenc_compress_image(
 
 	if (ctx->config.a_scale_radius != 0)
 	{
+		image = imagep;
+		free_image_inside(&imgRGBA);
 		// First thread to enter will do setup, other threads will subsequently
 		// enter the critical section but simply skip over the initialization
 		auto init_avg = [ctx, &image, swizzle]() {
 			// Perform memory allocations for the destination buffers
-			size_t texel_count = image.dim_x * image.dim_y * image.dim_z;
+			size_t texel_count = image->dim_x * image->dim_y * image->dim_z;
 			ctx->input_alpha_averages = new float[texel_count];
 
 			return init_compute_averages(
-				image, ctx->config.a_scale_radius, *swizzle,
+				*image, ctx->config.a_scale_radius, *swizzle,
 				ctx->avg_preprocess_args);
 		};
 
@@ -1143,9 +1223,9 @@ astcenc_error astcenc_compress_image(
 	// Wait for compute_averages to complete before compressing
 	ctxo->manage_avg.wait();
 #if QUALITY_CONTROL
-	compress_image(*ctxo, thread_index, image, *swizzle, data_out, calQualityEnable, mse);
+	compress_image(*ctxo, thread_index, *image, *swizzle, data_out, calQualityEnable, mse);
 #else
-	compress_image(*ctxo, thread_index, image, *swizzle, data_out);
+	compress_image(*ctxo, thread_index, *image, *swizzle, data_out);
 #endif
 	// Wait for compress to complete before freeing memory
 	ctxo->manage_compress.wait();
@@ -1157,7 +1237,7 @@ astcenc_error astcenc_compress_image(
 
 	// Only the first thread to arrive actually runs the term
 	ctxo->manage_compress.term(term_compress);
-
+	free_image_inside(&imgRGBA);
 	return ASTCENC_SUCCESS;
 #endif
 }

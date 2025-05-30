@@ -178,7 +178,8 @@
 enum QualityProfile {
 	HIGH_QUALITY_PROFILE = 0, // default profile
 	HIGH_SPEED_PROFILE,
-	CUSTOMIZED_PROFILE
+	CUSTOMIZED_PROFILE,
+	HIGH_SPEED_PROFILE_HIGHBITS
 };
 
 static const int HIGH_SPEED_PROFILE_BLOCK_MODE = 67; // keep openSource type, example
@@ -332,7 +333,9 @@ enum astcenc_type
 	/** @brief 16-bit float per component. */
 	ASTCENC_TYPE_F16 = 1,
 	/** @brief 32-bit float per component. */
-	ASTCENC_TYPE_F32 = 2
+	ASTCENC_TYPE_F32 = 2,
+	/** @brief 32-bit RGBA 1010102 data. */
+	ASTCENC_TYPE_RGBA1010102 = 3
 };
 
 /**
