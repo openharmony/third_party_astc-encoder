@@ -1178,6 +1178,9 @@ struct avg_args
 	/** @brief The arguments for the nested variance computation. */
 	pixel_region_args arg;
 
+	/** @brief The image Stride dimensions. */
+	unsigned int img_size_stride;
+
 	/** @brief The image X dimensions. */
 	unsigned int img_size_x;
 
@@ -2051,7 +2054,13 @@ void compress_block(
 	const astcenc_contexti& ctx,
 	const image_block& blk,
 	uint8_t pcb[16],
-	compression_working_buffers& tmpbuf);
+	compression_working_buffers& tmpbuf
+#if QUALITY_CONTROL
+	,
+	bool calQualityEnable,
+	int32_t* mseBlock[RGBA_COM]
+#endif
+);
 
 /**
  * @brief Decompress a symbolic block in to an image block.
