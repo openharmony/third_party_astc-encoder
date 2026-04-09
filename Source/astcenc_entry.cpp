@@ -794,6 +794,11 @@ static void compress_image(
 	const astcenc_image& image,
 	const astcenc_swizzle& swizzle,
 	uint8_t* buffer
+#if QUALITY_CONTROL
+	,
+	bool calQualityEnable,
+	int32_t* mse[RGBA_COM]
+#endif
 ) {
 	astcenc_contexti& ctx = ctxo.context;
 	const block_size_descriptor& bsd = *ctx.bsd;
@@ -932,7 +937,20 @@ static void compress_image(
 
 			int offset = ((z * yblocks + y) * xblocks + x) * 16;
 			uint8_t *bp = buffer + offset;
+			#if QUALITY_CONTROL
+			int32_t* mseBlock[RGBA_COM] = { nullptr, nullptr, nullptr, nullptr };
+			if (calQualityEnable)
+			{
+				int mse_offset = (z * yblocks + y) * xblocks + x;
+				mseBlock[R_COM] = mse[R_COM] + mse_offset;
+				mseBlock[G_COM] = mse[G_COM] + mse_offset;
+				mseBlock[B_COM] = mse[B_COM] + mse_offset;
+				mseBlock[A_COM] = mse[A_COM] + mse_offset;
+			}
+			compress_block(ctx, blk, bp, temp_buffers, calQualityEnable, mseBlock);
+			#else
 			compress_block(ctx, blk, bp, temp_buffers);
+			#endif
 		}
 
 		ctxo.manage_compress.complete_task_assignment(count);
@@ -1010,6 +1028,10 @@ astcenc_error astcenc_compress_image(
 	const astcenc_swizzle* swizzle,
 	uint8_t* data_out,
 	size_t data_len,
+#if QUALITY_CONTROL
+	bool calQualityEnable,
+	int32_t* mse[RGBA_COM],
+#endif
 	unsigned int thread_index
 ) {
 #if defined(ASTCENC_DECOMPRESS_ONLY)
@@ -1086,7 +1108,11 @@ astcenc_error astcenc_compress_image(
 	// Wait for compute_averages to complete before compressing
 	ctxo->manage_avg.wait();
 
+	#if QUALITY_CONTROL
+	compress_image(*ctxo, thread_index, image, *swizzle, data_out, calQualityEnable, mse);
+	#else
 	compress_image(*ctxo, thread_index, image, *swizzle, data_out);
+	#endif
 
 	// Wait for compress to complete before freeing memory
 	ctxo->manage_compress.wait();
