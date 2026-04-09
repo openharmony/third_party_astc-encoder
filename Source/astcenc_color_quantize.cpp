@@ -73,7 +73,6 @@ static inline uint8_t quant_color(
 	quant_method quant_level,
 	int value
 ) {
-    value = astc::clamp(value, 0, 255); // 255: maximum value
 	int index = value * 2 + 1;
 	return color_unquant_to_uquant_tables[quant_level - QUANT_6][index];
 }
@@ -1908,7 +1907,6 @@ static void quantize_hdr_rgb_alpha(
 
 /* See header for documentation. */
 uint8_t pack_color_endpoints(
-	QualityProfile privateProfile,
 	vfloat4 color0,
 	vfloat4 color1,
 	vfloat4 rgbs_color,
@@ -2010,7 +2008,7 @@ uint8_t pack_color_endpoints(
 		break;
 
 	case FMT_RGBA:
-		if ((privateProfile == HIGH_QUALITY_PROFILE) && (quant_level <= QUANT_160)) // only full quality profile to try
+		if (quant_level <= QUANT_160)
 		{
 			if (try_quantize_rgba_delta_blue_contract(color0_ldr, color1_ldr, color0_out, color1_out, quant_level))
 			{

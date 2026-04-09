@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // ----------------------------------------------------------------------------
-// Copyright 2011-2024 Arm Limited
+// Copyright 2011-2025 Arm Limited
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not
 // use this file except in compliance with the License. You may obtain a copy
@@ -26,12 +26,6 @@
 #include "astcenc.h"
 #include "astcenc_internal_entry.h"
 #include "astcenc_diagnostic_trace.h"
-
-// RGBA数据存储格式说明（内存布局/位分配）
-constexpr uint8_t COMPONENT_NUM = 4;
-constexpr uint8_t COMP_G_SHIFT_POSITION = 10;
-constexpr uint8_t COMP_B_SHIFT_POSITION = 20;
-constexpr uint8_t COMP_A_SHIFT_POSITION = 30;
 
 /**
  * @brief Record of the quality tuning parameter values.
@@ -687,13 +681,6 @@ astcenc_error astcenc_context_alloc(
 	}
 #endif
 
-#ifndef ASTC_CUSTOMIZED_ENABLE
-	if (config.privateProfile == CUSTOMIZED_PROFILE)
-	{
-		return ASTCENC_ERR_BAD_PARAM;
-	}
-#endif
-
 	astcenc_context* ctxo = new astcenc_context;
 	astcenc_contexti* ctx = &ctxo->context;
 	ctx->thread_count = thread_count;
@@ -719,25 +706,11 @@ astcenc_error astcenc_context_alloc(
 	}
 
 	bool can_omit_modes = static_cast<bool>(config.flags & ASTCENC_FLG_SELF_DECOMPRESS_ONLY);
-#ifdef ASTC_CUSTOMIZED_ENABLE
-	if (!init_block_size_descriptor(ctx->config.privateProfile, config.block_x, config.block_y, config.block_z,
-	                           can_omit_modes,
-	                           config.tune_partition_count_limit,
-	                           static_cast<float>(config.tune_block_mode_limit) / 100.0f,
-	                           *ctx->bsd))
-	{
-		aligned_free<block_size_descriptor>(ctx->bsd);
-		delete ctxo;
-		*context = nullptr;
-		return ASTCENC_ERR_DLOPEN_FAILED;
-	}
-#else
-	init_block_size_descriptor(ctx->config.privateProfile, config.block_x, config.block_y, config.block_z,
+	init_block_size_descriptor(config.block_x, config.block_y, config.block_z,
 	                           can_omit_modes,
 	                           config.tune_partition_count_limit,
 	                           static_cast<float>(config.tune_block_mode_limit) / 100.0f,
 	                           *ctx->bsd);
-#endif
 
 #if !defined(ASTCENC_DECOMPRESS_ONLY)
 	// Do setup only needed by compression
@@ -795,22 +768,8 @@ void astcenc_context_free(
 	if (ctxo)
 	{
 		astcenc_contexti* ctx = &ctxo->context;
-		if (ctx->working_buffers)
-		{
-			aligned_free<compression_working_buffers>(ctx->working_buffers);
-		}
-		else
-		{
-			printf("ctx->working_buffers is nullptr !!\n");
-		}
-		if (ctx->bsd)
-		{
-			aligned_free<block_size_descriptor>(ctx->bsd);
-		}
-		else
-		{
-			printf("ctx->bsd is nullptr !!\n");
-		}
+		aligned_free<compression_working_buffers>(ctx->working_buffers);
+		aligned_free<block_size_descriptor>(ctx->bsd);
 #if defined(ASTCENC_DIAGNOSTICS)
 		delete ctx->trace_log;
 #endif
@@ -834,13 +793,7 @@ static void compress_image(
 	unsigned int thread_index,
 	const astcenc_image& image,
 	const astcenc_swizzle& swizzle,
-#if QUALITY_CONTROL
-	uint8_t* buffer,
-	bool calQualityEnable,
-	int32_t *mse[RGBA_COM]
-#else
 	uint8_t* buffer
-#endif
 ) {
 	astcenc_contexti& ctx = ctxo.context;
 	const block_size_descriptor& bsd = *ctx.bsd;
@@ -979,19 +932,7 @@ static void compress_image(
 
 			int offset = ((z * yblocks + y) * xblocks + x) * 16;
 			uint8_t *bp = buffer + offset;
-#if QUALITY_CONTROL
-			int32_t *mseBlock[RGBA_COM] = {nullptr, nullptr, nullptr, nullptr};
-			if (calQualityEnable) {
-				offset = (z * yblocks + y) * xblocks + x;
-				mseBlock[R_COM] = mse[R_COM] + offset;
-				mseBlock[G_COM] = mse[G_COM] + offset;
-				mseBlock[B_COM] = mse[B_COM] + offset;
-				mseBlock[A_COM] = mse[A_COM] + offset;
-			}
-			compress_block(ctx, blk, bp, temp_buffers, calQualityEnable, mseBlock);
-#else
 			compress_block(ctx, blk, bp, temp_buffers);
-#endif
 		}
 
 		ctxo.manage_compress.complete_task_assignment(count);
@@ -1062,49 +1003,6 @@ static void compute_averages(
 
 #endif
 
-static void free_image_inside(astcenc_image* img)
-{
-	if (img->data != nullptr)
-	{
-		for (unsigned int z = 0; z < img->dim_z; z++)
-		{
-			delete[] reinterpret_cast<char *>(img->data[z]);
-			img->data[z] = nullptr;
-		}
-	}
-	delete[] img->data;
-	img->data = nullptr;
-}
-
-static void convert_rgba10_to_float16(astcenc_image* imgRGBA, astcenc_image* image)
-{
-	uint32_t* src = static_cast<uint32_t *>(image->data[0]);
-	uint16_t* dst = static_cast<uint16_t *>(imgRGBA->data[0]);
-	for (unsigned int y = 0; y < image->dim_y; y++)
-	{
-		for (unsigned int x = 0; x < image->dim_x; x++)
-		{
-			uint32_t data_rgba = src[image->dim_stride * y + x];
-			uint16_t data_r = data_rgba & 0x3FF;
-			uint16_t data_g = (data_rgba >> COMP_G_SHIFT_POSITION) & 0x3FF;
-			uint16_t data_b = (data_rgba >> COMP_B_SHIFT_POSITION) & 0x3FF;
-			uint16_t data_a = (data_rgba >> COMP_A_SHIFT_POSITION) & 0x3;
-			vint4 colorf16 = float_to_float16(vfloat4(data_r / 1023.0, // 1023.0: 10bit to 0-1
-							data_g / 1023.0,
-							data_b / 1023.0,
-							data_a / 3.0)); // 3.0: 2bit to 0-1
-			dst[(COMPONENT_NUM * image->dim_x * y) + (COMPONENT_NUM * x)] =
-				static_cast<uint16_t>(colorf16.lane<0>()); // 0: R
-			dst[(COMPONENT_NUM * image->dim_x * y) + (COMPONENT_NUM * x + 1)] = // 1: G
-				static_cast<uint16_t>(colorf16.lane<1>()); // 1: G
-			dst[(COMPONENT_NUM * image->dim_x * y) + (COMPONENT_NUM * x + 2)] = // 2: B
-				static_cast<uint16_t>(colorf16.lane<2>()); // 2: B
-			dst[(COMPONENT_NUM * image->dim_x * y) + (COMPONENT_NUM * x + 3)] = // 3: A
-				static_cast<uint16_t>(colorf16.lane<3>()); // 3: A
-		}
-	}
-}
-
 /* See header for documentation. */
 astcenc_error astcenc_compress_image(
 	astcenc_context* ctxo,
@@ -1112,10 +1010,6 @@ astcenc_error astcenc_compress_image(
 	const astcenc_swizzle* swizzle,
 	uint8_t* data_out,
 	size_t data_len,
-#if QUALITY_CONTROL
-	bool calQualityEnable,
-	int32_t *mse[RGBA_COM],
-#endif
 	unsigned int thread_index
 ) {
 #if defined(ASTCENC_DECOMPRESS_ONLY)
@@ -1129,49 +1023,21 @@ astcenc_error astcenc_compress_image(
 #else
 	astcenc_contexti* ctx = &ctxo->context;
 	astcenc_error status;
-	astcenc_image* image = imagep;
-
-	astcenc_image imgRGBA = {};
-	imgRGBA.data = nullptr;
-	if (image->data_type == ASTCENC_TYPE_RGBA1010102)
-	{
-		imgRGBA.dim_x = image->dim_x;
-		imgRGBA.dim_y = image->dim_y;
-		imgRGBA.dim_stride = imgRGBA.dim_x;
-		imgRGBA.dim_z = 1;
-		imgRGBA.data_type = ASTCENC_TYPE_F16;
-		imgRGBA.data = new(std::nothrow) void* [imgRGBA.dim_z];
-		if (imgRGBA.data == nullptr)
-		{
-			return ASTCENC_ERR_OUT_OF_MEM;
-		}
-		imgRGBA.data[0] = new(std::nothrow)
-			uint16_t[imgRGBA.dim_x * imgRGBA.dim_y * COMPONENT_NUM];
-		if (imgRGBA.data[0] == nullptr)
-		{
-			free_image_inside(&imgRGBA);
-			return ASTCENC_ERR_OUT_OF_MEM;
-		}
-		convert_rgba10_to_float16(&imgRGBA, imagep);
-		image = &imgRGBA;
-	}
+	astcenc_image& image = *imagep;
 
 	if (ctx->config.flags & ASTCENC_FLG_DECOMPRESS_ONLY)
 	{
-		free_image_inside(&imgRGBA);
 		return ASTCENC_ERR_BAD_CONTEXT;
 	}
 
 	status = validate_compression_swizzle(*swizzle);
 	if (status != ASTCENC_SUCCESS)
 	{
-		free_image_inside(&imgRGBA);
 		return status;
 	}
 
 	if (thread_index >= ctx->thread_count)
 	{
-		free_image_inside(&imgRGBA);
 		return ASTCENC_ERR_BAD_PARAM;
 	}
 
@@ -1179,15 +1045,14 @@ astcenc_error astcenc_compress_image(
 	unsigned int block_y = ctx->config.block_y;
 	unsigned int block_z = ctx->config.block_z;
 
-	unsigned int xblocks = (image->dim_x + block_x - 1) / block_x;
-	unsigned int yblocks = (image->dim_y + block_y - 1) / block_y;
-	unsigned int zblocks = (image->dim_z + block_z - 1) / block_z;
+	unsigned int xblocks = (image.dim_x + block_x - 1) / block_x;
+	unsigned int yblocks = (image.dim_y + block_y - 1) / block_y;
+	unsigned int zblocks = (image.dim_z + block_z - 1) / block_z;
 
 	// Check we have enough output space (16 bytes per block)
 	size_t size_needed = xblocks * yblocks * zblocks * 16;
 	if (data_len < size_needed)
 	{
-		free_image_inside(&imgRGBA);
 		return ASTCENC_ERR_OUT_OF_MEM;
 	}
 
@@ -1199,17 +1064,15 @@ astcenc_error astcenc_compress_image(
 
 	if (ctx->config.a_scale_radius != 0)
 	{
-		image = imagep;
-		free_image_inside(&imgRGBA);
 		// First thread to enter will do setup, other threads will subsequently
 		// enter the critical section but simply skip over the initialization
 		auto init_avg = [ctx, &image, swizzle]() {
 			// Perform memory allocations for the destination buffers
-			size_t texel_count = image->dim_x * image->dim_y * image->dim_z;
+			size_t texel_count = image.dim_x * image.dim_y * image.dim_z;
 			ctx->input_alpha_averages = new float[texel_count];
 
 			return init_compute_averages(
-				*image, ctx->config.a_scale_radius, *swizzle,
+				image, ctx->config.a_scale_radius, *swizzle,
 				ctx->avg_preprocess_args);
 		};
 
@@ -1222,11 +1085,9 @@ astcenc_error astcenc_compress_image(
 
 	// Wait for compute_averages to complete before compressing
 	ctxo->manage_avg.wait();
-#if QUALITY_CONTROL
-	compress_image(*ctxo, thread_index, *image, *swizzle, data_out, calQualityEnable, mse);
-#else
-	compress_image(*ctxo, thread_index, *image, *swizzle, data_out);
-#endif
+
+	compress_image(*ctxo, thread_index, image, *swizzle, data_out);
+
 	// Wait for compress to complete before freeing memory
 	ctxo->manage_compress.wait();
 
@@ -1237,7 +1098,7 @@ astcenc_error astcenc_compress_image(
 
 	// Only the first thread to arrive actually runs the term
 	ctxo->manage_compress.term(term_compress);
-	free_image_inside(&imgRGBA);
+
 	return ASTCENC_SUCCESS;
 #endif
 }
@@ -1258,6 +1119,29 @@ astcenc_error astcenc_compress_reset(
 
 	ctxo->manage_avg.reset();
 	ctxo->manage_compress.reset();
+	return ASTCENC_SUCCESS;
+#endif
+}
+
+/* See header for documentation. */
+astcenc_error astcenc_compress_cancel(
+	astcenc_context* ctxo
+) {
+#if defined(ASTCENC_DECOMPRESS_ONLY)
+	(void)ctxo;
+	return ASTCENC_ERR_BAD_CONTEXT;
+#else
+	astcenc_contexti* ctx = &ctxo->context;
+	if (ctx->config.flags & ASTCENC_FLG_DECOMPRESS_ONLY)
+	{
+		return ASTCENC_ERR_BAD_CONTEXT;
+	}
+
+	// Cancel compression before cancelling avg. This avoids the race condition
+	// where cancelling them in the other order could see a compression worker
+	// starting to process even though some of the avg data is undefined.
+	ctxo->manage_compress.cancel();
+	ctxo->manage_avg.cancel();
 	return ASTCENC_SUCCESS;
 #endif
 }
@@ -1306,7 +1190,7 @@ astcenc_error astcenc_decompress_image(
 		return ASTCENC_ERR_OUT_OF_MEM;
 	}
 
-	image_block blk;
+	image_block blk {};
 	blk.texel_count = static_cast<uint8_t>(block_x * block_y * block_z);
 
 	// Decode mode inferred from the output data type

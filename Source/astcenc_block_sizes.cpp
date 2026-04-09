@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // ----------------------------------------------------------------------------
-// Copyright 2011-2023 Arm Limited
+// Copyright 2011-2025 Arm Limited
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not
 // use this file except in compliance with the License. You may obtain a copy
@@ -384,12 +384,12 @@ static void init_decimation_info_2d(
 	}
 
 	// Initialize array tail so we can over-fetch with SIMD later to avoid loop tails
-	unsigned int texels_per_block_simd = round_up_to_simd_multiple_vla(texels_per_block);
-	for (unsigned int i = texels_per_block; i < texels_per_block_simd; i++)
+	size_t texels_per_block_simd = round_up_to_simd_multiple_vla(texels_per_block);
+	for (size_t i = texels_per_block; i < texels_per_block_simd; i++)
 	{
 		di.texel_weight_count[i] = 0;
 
-		for (unsigned int j = 0; j < 4; j++)
+		for (size_t j = 0; j < 4; j++)
 		{
 			di.texel_weight_contribs_float_tr[j][i] = 0;
 			di.texel_weights_tr[j][i] = 0;
@@ -402,12 +402,12 @@ static void init_decimation_info_2d(
 	unsigned int last_texel_count_wt = wb.texel_count_of_weight[weights_per_block - 1];
 	uint8_t last_texel = di.weight_texels_tr[last_texel_count_wt - 1][weights_per_block - 1];
 
-	unsigned int weights_per_block_simd = round_up_to_simd_multiple_vla(weights_per_block);
-	for (unsigned int i = weights_per_block; i < weights_per_block_simd; i++)
+	size_t weights_per_block_simd = round_up_to_simd_multiple_vla(weights_per_block);
+	for (size_t i = weights_per_block; i < weights_per_block_simd; i++)
 	{
 		di.weight_texel_count[i] = 0;
 
-		for (unsigned int j = 0; j < max_texel_count_of_weight; j++)
+		for (size_t j = 0; j < max_texel_count_of_weight; j++)
 		{
 			di.weight_texels_tr[j][i] = last_texel;
 			di.weights_texel_contribs_tr[j][i] = 0.0f;
@@ -640,12 +640,12 @@ static void init_decimation_info_3d(
 	}
 
 	// Initialize array tail so we can over-fetch with SIMD later to avoid loop tails
-	unsigned int texels_per_block_simd = round_up_to_simd_multiple_vla(texels_per_block);
-	for (unsigned int i = texels_per_block; i < texels_per_block_simd; i++)
+	size_t texels_per_block_simd = round_up_to_simd_multiple_vla(texels_per_block);
+	for (size_t i = texels_per_block; i < texels_per_block_simd; i++)
 	{
 		di.texel_weight_count[i] = 0;
 
-		for (unsigned int j = 0; j < 4; j++)
+		for (size_t j = 0; j < 4; j++)
 		{
 			di.texel_weight_contribs_float_tr[j][i] = 0;
 			di.texel_weights_tr[j][i] = 0;
@@ -658,12 +658,12 @@ static void init_decimation_info_3d(
 	int last_texel_count_wt = wb.texel_count_of_weight[weights_per_block - 1];
 	uint8_t last_texel = di.weight_texels_tr[last_texel_count_wt - 1][weights_per_block - 1];
 
-	unsigned int weights_per_block_simd = round_up_to_simd_multiple_vla(weights_per_block);
-	for (unsigned int i = weights_per_block; i < weights_per_block_simd; i++)
+	size_t weights_per_block_simd = round_up_to_simd_multiple_vla(weights_per_block);
+	for (size_t i = weights_per_block; i < weights_per_block_simd; i++)
 	{
 		di.weight_texel_count[i] = 0;
 
-		for (int j = 0; j < max_texel_count_of_weight; j++)
+		for (size_t j = 0; j < max_texel_count_of_weight; j++)
 		{
 			di.weight_texels_tr[j][i] = last_texel;
 			di.weights_texel_contribs_tr[j][i] = 0.0f;
@@ -789,12 +789,7 @@ static void construct_dt_entry_2d(
  * @param      mode_cutoff      Percentile cutoff in range [0,1]. Low values more likely to be used.
  * @param[out] bsd              The block size descriptor to populate.
  */
-#ifdef ASTC_CUSTOMIZED_ENABLE
-static bool construct_block_size_descriptor_2d(
-#else
 static void construct_block_size_descriptor_2d(
-#endif
-	QualityProfile privateProfile,
 	unsigned int x_texels,
 	unsigned int y_texels,
 	bool can_omit_modes,
@@ -821,13 +816,7 @@ static void construct_block_size_descriptor_2d(
 	// Gather all the decimation grids that can be used with the current block
 #if !defined(ASTCENC_DECOMPRESS_ONLY)
 	const float *percentiles = get_2d_percentile_table(x_texels, y_texels);
-    if (percentiles == nullptr) {
-        delete wb;
-#ifdef ASTC_CUSTOMIZED_ENABLE
-        return false;
-#endif
-    }
-	float always_cutoff = (privateProfile != HIGH_QUALITY_PROFILE) ? 1.0f : 0.0f;
+	float always_cutoff = 0.0f;
 #else
 	// Unused in decompress-only builds
 	(void)can_omit_modes;
@@ -863,31 +852,7 @@ static void construct_block_size_descriptor_2d(
 			{
 				continue;
 			}
-			if ((privateProfile == HIGH_SPEED_PROFILE ||
-				privateProfile == HIGH_SPEED_PROFILE_HIGHBITS) &&
-				(i != HIGH_SPEED_PROFILE_BLOCK_MODE))
-			{
-				continue;
-			}
-#ifdef ASTC_CUSTOMIZED_ENABLE
-			if (privateProfile == CUSTOMIZED_PROFILE)
-			{
-				if (!g_astcCustomizedSoManager.LoadSutCustomizedSo() ||
-					g_astcCustomizedSoManager.isCustomizedBlockModeFunc_ == nullptr)
-				{
-					printf("astcenc customized so dlopen failed or isCustomizedBlockModeFunc_ is nullptr!\n");
-					delete wb;
-#if !defined(ASTCENC_DECOMPRESS_ONLY)
-					delete[] percentiles;
-#endif
-					return false;
-				}
-				if (!g_astcCustomizedSoManager.isCustomizedBlockModeFunc_(i))
-				{
-					continue;
-				}
-			}
-#endif
+
 			// Decode parameters
 			unsigned int x_weights;
 			unsigned int y_weights;
@@ -950,11 +915,6 @@ static void construct_block_size_descriptor_2d(
 			if (decimation_mode < 0)
 			{
 				construct_dt_entry_2d(x_texels, y_texels, x_weights, y_weights, bsd, *wb, packed_dm_idx);
-				if (privateProfile == HIGH_SPEED_PROFILE ||
-					privateProfile == HIGH_SPEED_PROFILE_HIGHBITS)
-				{
-					bsd.decimation_modes[packed_dm_idx].maxprec_1plane = 4; // Speed optimization: max prec num is limited to 4
-				}
 				decimation_mode_index[y_weights * 16 + x_weights] = packed_dm_idx;
 				decimation_mode = packed_dm_idx;
 
@@ -1017,9 +977,6 @@ static void construct_block_size_descriptor_2d(
 	assign_kmeans_texels(bsd);
 
 	delete wb;
-#ifdef ASTC_CUSTOMIZED_ENABLE
-	return true;
-#endif
 }
 
 /**
@@ -1205,12 +1162,7 @@ static void construct_block_size_descriptor_3d(
 }
 
 /* See header for documentation. */
-#ifdef ASTC_CUSTOMIZED_ENABLE
-bool init_block_size_descriptor(
-#else
 void init_block_size_descriptor(
-#endif
-	QualityProfile privateProfile,
 	unsigned int x_texels,
 	unsigned int y_texels,
 	unsigned int z_texels,
@@ -1225,18 +1177,8 @@ void init_block_size_descriptor(
 	}
 	else
 	{
-#ifdef ASTC_CUSTOMIZED_ENABLE
-		if (!construct_block_size_descriptor_2d(privateProfile, x_texels, y_texels, can_omit_modes, mode_cutoff, bsd))
-		{
-			return false;
-		}
-#else
-		construct_block_size_descriptor_2d(privateProfile, x_texels, y_texels, can_omit_modes, mode_cutoff, bsd);
-#endif
+		construct_block_size_descriptor_2d(x_texels, y_texels, can_omit_modes, mode_cutoff, bsd);
 	}
 
 	init_partition_tables(bsd, can_omit_modes, partition_count_cutoff);
-#ifdef ASTC_CUSTOMIZED_ENABLE
-	return true;
-#endif
 }

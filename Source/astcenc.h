@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // ----------------------------------------------------------------------------
-// Copyright 2020-2024 Arm Limited
+// Copyright 2020-2025 Arm Limited
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not
 // use this file except in compliance with the License. You may obtain a copy
@@ -169,32 +169,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#if defined(__aarch64__)
-	#define ASTCENC_NEON 1
-#else
-	#define ASTCENC_NEON 0
-#endif
-
-enum QualityProfile {
-	HIGH_QUALITY_PROFILE = 0, // default profile
-	HIGH_SPEED_PROFILE,
-	CUSTOMIZED_PROFILE,
-	HIGH_SPEED_PROFILE_HIGHBITS
-};
-
-static const int HIGH_SPEED_PROFILE_BLOCK_MODE = 67; // keep openSource type, example
-static const int BYTE_MASK = 0xFF;
-
-#define QUALITY_CONTROL (1)
-#if QUALITY_CONTROL
-enum ComponentRGBA {
-	R_COM = 0,
-	G_COM,
-	B_COM,
-	A_COM,
-	RGBA_COM
-};
-#endif
 
 #if defined(ASTCENC_DYNAMIC_LIBRARY)
 	#if defined(_MSC_VER)
@@ -246,12 +220,6 @@ enum astcenc_error {
 #if defined(ASTCENC_DIAGNOSTICS)
 	/** @brief The call failed due to an issue with diagnostic tracing. */
 	ASTCENC_ERR_DTRACE_FAILURE,
-#endif
-#if QUALITY_CONTROL
-	ASTCENC_ERR_BAD_QUALITY_CHECK,
-#endif
-#ifdef ASTC_CUSTOMIZED_ENABLE
-	ASTCENC_ERR_DLOPEN_FAILED
 #endif
 };
 
@@ -333,9 +301,7 @@ enum astcenc_type
 	/** @brief 16-bit float per component. */
 	ASTCENC_TYPE_F16 = 1,
 	/** @brief 32-bit float per component. */
-	ASTCENC_TYPE_F32 = 2,
-	/** @brief 32-bit RGBA 1010102 data. */
-	ASTCENC_TYPE_RGBA1010102 = 3
+	ASTCENC_TYPE_F32 = 2
 };
 
 /**
@@ -624,7 +590,6 @@ struct astcenc_config
 	 */
 	const char* trace_file_path;
 #endif
-	QualityProfile privateProfile;
 };
 
 /**
@@ -635,9 +600,6 @@ struct astcenc_config
  */
 struct astcenc_image
 {
-	/** @brief The stride dimension of the image, in texels. */
-	unsigned int dim_stride;
-
 	/** @brief The X dimension of the image, in texels. */
 	unsigned int dim_x;
 
@@ -804,10 +766,6 @@ ASTCENC_PUBLIC astcenc_error astcenc_compress_image(
 	const astcenc_swizzle* swizzle,
 	uint8_t* data_out,
 	size_t data_len,
-#if QUALITY_CONTROL
-	bool calQualityEnable,
-	int32_t *mse[RGBA_COM],
-#endif
 	unsigned int thread_index);
 
 /**
@@ -824,6 +782,20 @@ ASTCENC_PUBLIC astcenc_error astcenc_compress_image(
  * @return @c ASTCENC_SUCCESS on success, or an error if reset failed.
  */
 ASTCENC_PUBLIC astcenc_error astcenc_compress_reset(
+	astcenc_context* context);
+
+/**
+ * @brief Cancel any pending compression operation.
+ *
+ * The caller must behave as if the compression completed normally, even though the data will be
+ * undefined. They are still responsible for synchronizing threads in the worker thread pool, and
+ * must call reset before starting another compression.
+ *
+ * @param context   Codec context.
+ *
+ * @return @c ASTCENC_SUCCESS on success, or an error if cancellation failed.
+ */
+ASTCENC_PUBLIC astcenc_error astcenc_compress_cancel(
 	astcenc_context* context);
 
 /**

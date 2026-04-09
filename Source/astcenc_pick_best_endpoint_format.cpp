@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // ----------------------------------------------------------------------------
-// Copyright 2011-2022 Arm Limited
+// Copyright 2011-2025 Arm Limited
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not
 // use this file except in compliance with the License. You may obtain a copy
@@ -120,118 +120,24 @@ static void compute_error_squared_rgb_single_partition(
 	vfloat l_bs1(l_pline.bs.lane<1>());
 	vfloat l_bs2(l_pline.bs.lane<2>());
 
-	vfloat one_third(1/3.0f, 1/3.0f, 1/3.0f, 1/3.0f);
-	vfloat uncor_errv0 = vfloat::zero();
-	vfloat uncor_errv1 = vfloat::zero();
-	vfloat uncor_errv2 = vfloat::zero();
-	vfloat samec_errv0 = vfloat::zero();
-	vfloat samec_errv1 = vfloat::zero();
-	vfloat samec_errv2 = vfloat::zero();
-	vfloat rgbl_errv0 = vfloat::zero();
-	vfloat rgbl_errv1 = vfloat::zero();
-	vfloat rgbl_errv2 = vfloat::zero();
-	vfloat l_errv0 = vfloat::zero();
-	vfloat l_errv1 = vfloat::zero();
-	vfloat l_errv2 = vfloat::zero();
-
-	unsigned int i = 0;
-	for (; i + ASTCENC_SIMD_WIDTH <= texel_count; i += ASTCENC_SIMD_WIDTH)
+	vint lane_ids = vint::lane_id();
+	for (unsigned int i = 0; i < texel_count; i += ASTCENC_SIMD_WIDTH)
 	{
-#ifdef ASTCENC_USE_COMMON_GATHERF
 		const uint8_t* tix = texel_indexes + i;
-#else
-		vint tix(texel_indexes + i);
-#endif
-
-		// Compute the error that arises from just ditching alpha
-		vfloat data_a = gatherf(blk.data_a, tix);
-		vfloat alpha_diff = data_a - default_a;
-		alpha_diff = alpha_diff * alpha_diff;
-
-		haccumulate(a_drop_errv, alpha_diff);
-
-		vfloat data_r = gatherf(blk.data_r, tix);
-		vfloat data_g = gatherf(blk.data_g, tix);
-		vfloat data_b = gatherf(blk.data_b, tix);
-
-		vfloat data_rgb_avg = (data_r + data_g + data_b) * one_third;
-		vfloat data_rgb_0 = data_rgb_avg - data_r;
-		vfloat data_rgb_1 = data_rgb_avg - data_g;
-		vfloat data_rgb_2 = data_rgb_avg - data_b;
-
-		// Compute uncorrelated error
-		vfloat param = data_r * uncor_bs0
-		             + data_g * uncor_bs1
-		             + data_b * uncor_bs2;
-
-		vfloat dist0 = (uncor_amod0 + param * uncor_bs0) - data_r;
-		vfloat dist1 = (uncor_amod1 + param * uncor_bs1) - data_g;
-		vfloat dist2 = (uncor_amod2 + param * uncor_bs2) - data_b;
-
-		haccumulate(uncor_errv0, dist0 * dist0);
-		haccumulate(uncor_errv1, dist1 * dist1);
-		haccumulate(uncor_errv2, dist2 * dist2);
-
-		// Compute same chroma error - no "amod", its always zero
-		param = data_r * samec_bs0
-		      + data_g * samec_bs1
-		      + data_b * samec_bs2;
-
-		dist0 = (param * samec_bs0) - data_r;
-		dist1 = (param * samec_bs1) - data_g;
-		dist2 = (param * samec_bs2) - data_b;
-
-		haccumulate(uncor_errv0, dist0 * dist0);
-		haccumulate(uncor_errv1, dist1 * dist1);
-		haccumulate(uncor_errv2, dist2 * dist2);
-
-		// Compute rgbl error
-		dist0 = rgbl_amod0 + data_rgb_0;
-		dist1 = rgbl_amod1 + data_rgb_1;
-		dist2 = rgbl_amod2 + data_rgb_2;
-
-		haccumulate(rgbl_errv0, dist0 * dist0);
-		haccumulate(rgbl_errv1, dist1 * dist1);
-		haccumulate(rgbl_errv2, dist2 * dist2);
-		
-		// Compute luma error - no "amod", its always zero
-		dist0 = data_rgb_0;
-		dist1 = data_rgb_1;
-		dist2 = data_rgb_2;
-
-		haccumulate(l_errv0, dist0 * dist0);
-		haccumulate(l_errv1, dist1 * dist1);
-		haccumulate(l_errv2, dist2 * dist2);
-	}
-
-	uncor_errv = uncor_errv0 * ews.lane<0>() + uncor_errv1 * ews.lane<1>() + uncor_errv2 * ews.lane<2>(); // channel 0,1,2
-	samec_errv = samec_errv0 * ews.lane<0>() + samec_errv1 * ews.lane<1>() + samec_errv2 * ews.lane<2>(); // channel 0,1,2
-	rgbl_errv = rgbl_errv0 * ews.lane<0>() + rgbl_errv1 * ews.lane<1>() + rgbl_errv2 * ews.lane<2>(); // channel 0,1,2
-	l_errv = l_errv0 * ews.lane<0>() + l_errv1 * ews.lane<1>() + l_errv2 * ews.lane<2>(); // channel 0,1,2
-
-	if (i < texel_count)
-	{
-		vint lane_ids = vint::lane_id() + i;
-		vint tix(texel_indexes + i);
 
 		vmask mask = lane_ids < vint(texel_count);
 		lane_ids += vint(ASTCENC_SIMD_WIDTH);
 
 		// Compute the error that arises from just ditching alpha
-		vfloat data_a = gatherf(blk.data_a, tix);
+		vfloat data_a = gatherf_byte_inds<vfloat>(blk.data_a, tix);
 		vfloat alpha_diff = data_a - default_a;
 		alpha_diff = alpha_diff * alpha_diff;
 
 		haccumulate(a_drop_errv, alpha_diff, mask);
 
-		vfloat data_r = gatherf(blk.data_r, tix);
-		vfloat data_g = gatherf(blk.data_g, tix);
-		vfloat data_b = gatherf(blk.data_b, tix);
-
-		vfloat data_rgb_avg = (data_r + data_g + data_b) * one_third;
-		vfloat data_rgb_0 = data_rgb_avg - data_r;
-		vfloat data_rgb_1 = data_rgb_avg - data_g;
-		vfloat data_rgb_2 = data_rgb_avg - data_b;
+		vfloat data_r = gatherf_byte_inds<vfloat>(blk.data_r, tix);
+		vfloat data_g = gatherf_byte_inds<vfloat>(blk.data_g, tix);
+		vfloat data_b = gatherf_byte_inds<vfloat>(blk.data_b, tix);
 
 		// Compute uncorrelated error
 		vfloat param = data_r * uncor_bs0
@@ -264,9 +170,13 @@ static void compute_error_squared_rgb_single_partition(
 		haccumulate(samec_errv, error, mask);
 
 		// Compute rgbl error
-		dist0 = rgbl_amod0 + data_rgb_0;
-		dist1 = rgbl_amod1 + data_rgb_1;
-		dist2 = rgbl_amod2 + data_rgb_2;
+		param = data_r * rgbl_bs0
+		      + data_g * rgbl_bs1
+		      + data_b * rgbl_bs2;
+
+		dist0 = (rgbl_amod0 + param * rgbl_bs0) - data_r;
+		dist1 = (rgbl_amod1 + param * rgbl_bs1) - data_g;
+		dist2 = (rgbl_amod2 + param * rgbl_bs2) - data_b;
 
 		error = dist0 * dist0 * ews.lane<0>()
 		      + dist1 * dist1 * ews.lane<1>()
@@ -275,9 +185,13 @@ static void compute_error_squared_rgb_single_partition(
 		haccumulate(rgbl_errv, error, mask);
 
 		// Compute luma error - no "amod", its always zero
-		dist0 = data_rgb_0;
-		dist1 = data_rgb_1;
-		dist2 = data_rgb_2;
+		param = data_r * l_bs0
+		      + data_g * l_bs1
+		      + data_b * l_bs2;
+
+		dist0 = (param * l_bs0) - data_r;
+		dist1 = (param * l_bs1) - data_g;
+		dist2 = (param * l_bs2) - data_b;
 
 		error = dist0 * dist0 * ews.lane<0>()
 		      + dist1 * dist1 * ews.lane<1>()
@@ -306,7 +220,6 @@ static void compute_error_squared_rgb_single_partition(
  * @param[out] eci   The resulting encoding choice error metrics.
   */
 static void compute_encoding_choice_errors(
-	QualityProfile privateProfile,
 	const image_block& blk,
 	const partition_info& pi,
 	const endpoints& ep,
@@ -315,12 +228,9 @@ static void compute_encoding_choice_errors(
 	int partition_count = pi.partition_count;
 	promise(partition_count > 0);
 
-	partition_metrics *pms = reinterpret_cast<partition_metrics *>(&blk.pms[0]);
+	partition_metrics pms[BLOCK_MAX_PARTITIONS];
 
-	if (!blk.is_constant_channel(3) || (partition_count != 1 && privateProfile == HIGH_QUALITY_PROFILE))
-	{
-		compute_avgs_and_dirs_3_comp_rgb(pi, blk, pms);
-	}
+	compute_avgs_and_dirs_3_comp_rgb(pi, blk, pms);
 
 	for (int i = 0; i < partition_count; i++)
 	{
@@ -760,7 +670,6 @@ static void compute_color_error_for_every_integer_count_and_quant_level(
  * @return The output error for the best pairing.
  */
 static float one_partition_find_best_combination_for_bitcount(
-	QualityProfile privateProfile,
 	const float best_combined_error[21][4],
 	const uint8_t best_combined_format[21][4],
 	int bits_available,
@@ -772,10 +681,6 @@ static float one_partition_find_best_combination_for_bitcount(
 
 	for (int integer_count = 1; integer_count <= 4;  integer_count++)
 	{
-		if (privateProfile != HIGH_QUALITY_PROFILE)
-		{
-			integer_count = 4; // constant 4 bit count for HIGH_SPEED_PROFILE mode
-		}
 		// Compute the quantization level for a given number of integers and a given number of bits
 		int quant_level = quant_mode_table[integer_count][bits_available];
 
@@ -796,18 +701,11 @@ static float one_partition_find_best_combination_for_bitcount(
 	int ql = quant_mode_table[best_integer_count + 1][bits_available];
 
 	best_quant_level = static_cast<uint8_t>(ql);
-	if (privateProfile != HIGH_QUALITY_PROFILE) // keep openSource code style
-	{
-		best_format = FMT_RGBA;
-	}
-	else
-	{
-		best_format = FMT_LUMINANCE;
+	best_format = FMT_LUMINANCE;
 
-		if (ql >= QUANT_6)
-		{
-			best_format = best_combined_format[ql][best_integer_count];
-		}
+	if (ql >= QUANT_6)
+	{
+		best_format = best_combined_format[ql][best_integer_count];
 	}
 
 	return best_integer_count_error;
@@ -874,7 +772,6 @@ static void two_partitions_find_best_combination_for_every_quantization_and_inte
  * @return The output error for the best pairing.
  */
 static float two_partitions_find_best_combination_for_bitcount(
-	unsigned int privateProfile,
 	float best_combined_error[21][7],
 	uint8_t best_combined_format[21][7][2],
 	int bits_available,
@@ -884,13 +781,8 @@ static float two_partitions_find_best_combination_for_bitcount(
 ) {
 	int best_integer_count = 0;
 	float best_integer_count_error = ERROR_CALC_DEFAULT;
-	int integer_count = 2;
-	if (privateProfile != HIGH_QUALITY_PROFILE)
-	{
-		integer_count = 8;  // constant 8 bit count
-	}
 
-	for (; integer_count <= 8; integer_count++)
+	for (int integer_count = 2; integer_count <= 8; integer_count++)
 	{
 		// Compute the quantization level for a given number of integers and a given number of bits
 		int quant_level = quant_mode_table[integer_count][bits_available];
@@ -917,9 +809,6 @@ static float two_partitions_find_best_combination_for_bitcount(
 
 	if (ql >= QUANT_6)
 	{
-        if (best_integer_count < 2) { // 2: minimum integer_count
-            return ERROR_CALC_DEFAULT;
-        }
 		for (int i = 0; i < 2; i++)
 		{
 			best_formats[i] = best_combined_format[ql][best_integer_count - 2][i];
@@ -1045,9 +934,6 @@ static float three_partitions_find_best_combination_for_bitcount(
 
 	if (ql >= QUANT_6)
 	{
-        if (best_integer_count < 3) { // 3: minimum integer_count
-            return ERROR_CALC_DEFAULT;
-        }
 		for (int i = 0; i < 3; i++)
 		{
 			best_formats[i] = best_combined_format[ql][best_integer_count - 3][i];
@@ -1184,9 +1070,6 @@ static float four_partitions_find_best_combination_for_bitcount(
 
 	if (ql >= QUANT_6)
 	{
-        if (best_integer_count < 4) { // 4: minimum integer_count
-            return ERROR_CALC_DEFAULT;
-        }
 		for (int i = 0; i < 4; i++)
 		{
 			best_formats[i] = best_combined_format[ql][best_integer_count - 4][i];
@@ -1205,7 +1088,6 @@ static float four_partitions_find_best_combination_for_bitcount(
 
 /* See header for documentation. */
 unsigned int compute_ideal_endpoint_formats(
-	QualityProfile privateProfile,
 	const partition_info& pi,
 	const image_block& blk,
 	const endpoints& ep,
@@ -1232,7 +1114,7 @@ unsigned int compute_ideal_endpoint_formats(
 	// Compute the errors that result from various encoding choices (such as using luminance instead
 	// of RGB, discarding Alpha, using RGB-scale in place of two separate RGB endpoints and so on)
 	encoding_choice_errors eci[BLOCK_MAX_PARTITIONS];
-	compute_encoding_choice_errors(privateProfile, blk, pi, ep, eci);
+	compute_encoding_choice_errors(blk, pi, ep, eci);
 
 	float best_error[BLOCK_MAX_PARTITIONS][21][4];
 	uint8_t format_of_choice[BLOCK_MAX_PARTITIONS][21][4];
@@ -1253,13 +1135,13 @@ unsigned int compute_ideal_endpoint_formats(
 	vfloat clear_error(ERROR_CALC_DEFAULT);
 	vint clear_quant(0);
 
-	unsigned int packed_start_block_mode = round_down_to_simd_multiple_vla(start_block_mode);
+	size_t packed_start_block_mode = round_down_to_simd_multiple_vla(start_block_mode);
 	storea(clear_error, errors_of_best_combination + packed_start_block_mode);
 	store_nbytes(clear_quant, best_quant_levels + packed_start_block_mode);
 	store_nbytes(clear_quant, best_quant_levels_mod + packed_start_block_mode);
 
 	// Ensure that last iteration overstep contains data that will never be picked
-	unsigned int packed_end_block_mode = round_down_to_simd_multiple_vla(end_block_mode - 1);
+	size_t packed_end_block_mode = round_down_to_simd_multiple_vla(end_block_mode - 1);
 	storea(clear_error, errors_of_best_combination + packed_end_block_mode);
 	store_nbytes(clear_quant, best_quant_levels + packed_end_block_mode);
 	store_nbytes(clear_quant, best_quant_levels_mod + packed_end_block_mode);
@@ -1280,7 +1162,6 @@ unsigned int compute_ideal_endpoint_formats(
 			}
 
 			float error_of_best = one_partition_find_best_combination_for_bitcount(
-			    privateProfile,
 			    best_error[0], format_of_choice[0], qwt_bitcounts[i],
 			    best_quant_levels[i], best_ep_formats[i][0]);
 
@@ -1314,10 +1195,9 @@ unsigned int compute_ideal_endpoint_formats(
 			}
 
 			float error_of_best = two_partitions_find_best_combination_for_bitcount(
-				privateProfile,
-				combined_best_error, formats_of_choice, qwt_bitcounts[i],
-				best_quant_levels[i], best_quant_levels_mod[i],
-				best_ep_formats[i]);
+			    combined_best_error, formats_of_choice, qwt_bitcounts[i],
+			    best_quant_levels[i], best_quant_levels_mod[i],
+			    best_ep_formats[i]);
 
 			float total_error = error_of_best + qwt_errors[i];
 			errors_of_best_combination[i] = total_error;
@@ -1412,9 +1292,12 @@ unsigned int compute_ideal_endpoint_formats(
 		vint vbest_error_index(-1);
 		vfloat vbest_ep_error(ERROR_CALC_DEFAULT);
 
-		start_block_mode = round_down_to_simd_multiple_vla(start_block_mode);
-		vint lane_ids = vint::lane_id() + vint(start_block_mode);
-		for (unsigned int j = start_block_mode; j < end_block_mode; j += ASTCENC_SIMD_WIDTH)
+		// TODO: This should use size_t for the inputs of start/end_block_mode
+		// to avoid some of this type conversion, but that propagates and will
+		// need a bigger PR to fix
+		size_t start_mode = round_down_to_simd_multiple_vla(start_block_mode);
+		vint lane_ids = vint::lane_id() + vint_from_size(start_mode);
+		for (size_t j = start_mode; j < end_block_mode; j += ASTCENC_SIMD_WIDTH)
 		{
 			vfloat err = vfloat(errors_of_best_combination + j);
 			vmask mask = err < vbest_ep_error;
@@ -1426,8 +1309,8 @@ unsigned int compute_ideal_endpoint_formats(
 		// Pick best mode from the SIMD result, using lowest matching index to ensure invariance
 		vmask lanes_min_error = vbest_ep_error == hmin(vbest_ep_error);
 		vbest_error_index = select(vint(0x7FFFFFFF), vbest_error_index, lanes_min_error);
-		vbest_error_index = hmin(vbest_error_index);
-		int best_error_index = vbest_error_index.lane<0>();
+
+		int best_error_index = hmin_s(vbest_error_index);
 
 		best_error_weights[i] = best_error_index;
 

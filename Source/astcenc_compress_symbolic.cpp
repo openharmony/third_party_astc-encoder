@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // ----------------------------------------------------------------------------
-// Copyright 2011-2024 Arm Limited
+// Copyright 2011-2025 Arm Limited
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not
 // use this file except in compliance with the License. You may obtain a copy
@@ -25,9 +25,6 @@
 #include "astcenc_diagnostic_trace.h"
 
 #include <cassert>
-#ifdef ASTC_CUSTOMIZED_ENABLE
-AstcCustomizedSoManager g_astcCustomizedSoManager;
-#endif
 
 /**
  * @brief Merge two planes of endpoints into a single vector.
@@ -69,214 +66,6 @@ static void merge_endpoints(
  * @param      blk           The image block color data to compress.
  * @param[out] scb           The symbolic compressed block output.
  */
-#if ASTCENC_NEON != 0
-static bool realign_weights_undecimated(
-	astcenc_profile decode_mode,
-	const block_size_descriptor& bsd,
-	const image_block& blk,
-	symbolic_compressed_block& scb
-) {
-	// Get the partition descriptor
-	unsigned int partition_count = scb.partition_count;
-	const auto& pi = bsd.get_partition_info(partition_count, scb.partition_index);
-
-	// Get the quantization table
-	const block_mode& bm = bsd.get_block_mode(scb.block_mode);
-	unsigned int weight_quant_level = bm.quant_mode;
-	const quant_and_transfer_table& qat = quant_and_xfer_tables[weight_quant_level];
-
-	unsigned int max_plane = bm.is_dual_plane;
-	int plane2_component = scb.plane2_component;
-	vmask4 plane_mask = vint4::lane_id() == vint4(plane2_component);
-
-	// Decode the color endpoints
-	bool rgb_hdr;
-	bool alpha_hdr;
-	vint4 endpnt0[BLOCK_MAX_PARTITIONS];
-	vint4 endpnt1[BLOCK_MAX_PARTITIONS];
-	vfloat4 endpnt0f[BLOCK_MAX_PARTITIONS];
-	vfloat4 offset[BLOCK_MAX_PARTITIONS];
-
-	promise(partition_count > 0);
-
-	for (unsigned int pa_idx = 0; pa_idx < partition_count; pa_idx++)
-	{
-		unpack_color_endpoints(decode_mode,
-		                       scb.color_formats[pa_idx],
-		                       scb.color_values[pa_idx],
-		                       rgb_hdr, alpha_hdr,
-		                       endpnt0[pa_idx],
-		                       endpnt1[pa_idx]);
-	}
-
-	uint8_t* dec_weights_uquant = scb.weights;
-	bool adjustments = false;
-
-	// For each plane and partition ...
-	for (unsigned int pl_idx = 0; pl_idx <= max_plane; pl_idx++)
-	{
-		for (unsigned int pa_idx = 0; pa_idx < partition_count; pa_idx++)
-		{
-			// Compute the endpoint delta for all components in current plane
-			vint4 epd = endpnt1[pa_idx] - endpnt0[pa_idx];
-			epd = select(epd, vint4::zero(), plane_mask);
-
-			endpnt0f[pa_idx] = int_to_float(endpnt0[pa_idx]);
-			offset[pa_idx] = int_to_float(epd) * (1.0f / 64.0f);
-		}
-
-		// For each weight compute previous, current, and next errors
-		promise(bsd.texel_count > 0);
-
-		unsigned int texel = 0;
-		for (; texel + ASTCENC_SIMD_WIDTH <= bsd.texel_count; texel += ASTCENC_SIMD_WIDTH)
-		{
-			int uqw0 = dec_weights_uquant[texel];
-			int uqw1 = dec_weights_uquant[texel + 1];
-			int uqw2 = dec_weights_uquant[texel + 2];
-			int uqw3 = dec_weights_uquant[texel + 3];
-
-			vint4 uqw_vec = vint4(uqw0, uqw1, uqw2, uqw3);
-			vint4 prev_and_next_vec = vint4(qat.prev_next_values[uqw0], qat.prev_next_values[uqw1],
-							qat.prev_next_values[uqw2], qat.prev_next_values[uqw3]);
-
-			vint4 mask = vint4(0xFF, 0xFF, 0xFF, 0xFF);
-			vint4 uqw_down_vec = prev_and_next_vec & mask;
-			vint4 uqw_up_vec = vint4(vshrq_n_s32(prev_and_next_vec.m, 8)) & mask;
-
-			vfloat4 weight_base_vec = int_to_float(uqw_vec);
-			vfloat4 weight_down_vec = int_to_float(uqw_down_vec) - weight_base_vec;
-			vfloat4 weight_up_vec = int_to_float(uqw_up_vec) - weight_base_vec;
-
-			unsigned int partition0 = pi.partition_of_texel[texel];
-			unsigned int partition1 = pi.partition_of_texel[texel + 1];
-			unsigned int partition2 = pi.partition_of_texel[texel + 2];
-			unsigned int partition3 = pi.partition_of_texel[texel + 3];
-
-			vfloat4 color_offset0 = offset[partition0];
-			vfloat4 color_offset1 = offset[partition1];
-			vfloat4 color_offset2 = offset[partition2];
-			vfloat4 color_offset3 = offset[partition3];
-
-			vfloat4 color_base0 = endpnt0f[partition0];
-			vfloat4 color_base1 = endpnt0f[partition1];
-			vfloat4 color_base2 = endpnt0f[partition2];
-			vfloat4 color_base3 = endpnt0f[partition3];
-
-			vfloat4 color0 = color_base0 + color_offset0 * weight_base_vec.lane<0>();
-			vfloat4 color1 = color_base1 + color_offset1 * weight_base_vec.lane<1>();
-			vfloat4 color2 = color_base2 + color_offset2 * weight_base_vec.lane<2>();
-			vfloat4 color3 = color_base3 + color_offset3 * weight_base_vec.lane<3>();
-
-			vfloat4 orig_color0 = blk.texel(texel);
-			vfloat4 orig_color1 = blk.texel(texel + 1);
-			vfloat4 orig_color2 = blk.texel(texel + 2);
-			vfloat4 orig_color3 = blk.texel(texel + 3);
-
-			vfloat4 error_weight = blk.channel_weight;
-
-			vfloat4 color_diff0 = color0 - orig_color0;
-			vfloat4 color_diff1 = color1 - orig_color1;
-			vfloat4 color_diff2 = color2 - orig_color2;
-			vfloat4 color_diff3 = color3 - orig_color3;
-
-			vfloat4 color_diff_down0 = color_diff0 + color_offset0 * weight_down_vec.lane<0>();
-			vfloat4 color_diff_down1 = color_diff1 + color_offset1 * weight_down_vec.lane<1>();
-			vfloat4 color_diff_down2 = color_diff2 + color_offset2 * weight_down_vec.lane<2>();
-			vfloat4 color_diff_down3 = color_diff3 + color_offset3 * weight_down_vec.lane<3>();
-			
-			vfloat4 color_diff_up0 = color_diff0 + color_offset0 * weight_up_vec.lane<0>();
-			vfloat4 color_diff_up1 = color_diff1 + color_offset1 * weight_up_vec.lane<1>();
-			vfloat4 color_diff_up2 = color_diff2 + color_offset2 * weight_up_vec.lane<2>();
-			vfloat4 color_diff_up3 = color_diff3 + color_offset3 * weight_up_vec.lane<3>();
-
-			float error_base0 = dot_s(color_diff0 * color_diff0, error_weight);
-			float error_base1 = dot_s(color_diff1 * color_diff1, error_weight);
-			float error_base2 = dot_s(color_diff2 * color_diff2, error_weight);
-			float error_base3 = dot_s(color_diff3 * color_diff3, error_weight);
-
-			float error_down0 = dot_s(color_diff_down0 * color_diff_down0, error_weight);
-			float error_down1 = dot_s(color_diff_down1 * color_diff_down1, error_weight);
-			float error_down2 = dot_s(color_diff_down2 * color_diff_down2, error_weight);
-			float error_down3 = dot_s(color_diff_down3 * color_diff_down3, error_weight);
-
-			float error_up0 = dot_s(color_diff_up0 * color_diff_up0, error_weight);
-			float error_up1 = dot_s(color_diff_up1 * color_diff_up1, error_weight);
-			float error_up2 = dot_s(color_diff_up2 * color_diff_up2, error_weight);
-			float error_up3 = dot_s(color_diff_up3 * color_diff_up3, error_weight);
-
-			vfloat4 error_base_vec = vfloat4(error_base0, error_base1, error_base2, error_base3);
-			vfloat4 error_down_vec = vfloat4(error_down0, error_down1, error_down2, error_down3);
-			vfloat4 error_up_vec = vfloat4(error_up0, error_up1, error_up2, error_up3);
-
-			vmask4 check_result_up = (error_up_vec < error_base_vec) &
-			        (error_up_vec < error_down_vec) & (uqw_vec < vint4(64));
-
-			vmask4 check_result_down = (error_down_vec < error_base_vec) & (uqw_vec > vint4::zero());
-			check_result_down = check_result_down & (~check_result_up);
-
-			if (popcount(check_result_up | check_result_down) != 0)
-			{
-				uqw_vec = select(uqw_vec, uqw_up_vec, check_result_up);
-				uqw_vec = select(uqw_vec, uqw_down_vec, check_result_down);
-
-				dec_weights_uquant[texel] = uqw_vec.lane<0>();
-				dec_weights_uquant[texel + 1] = uqw_vec.lane<1>();
-				dec_weights_uquant[texel + 2] = uqw_vec.lane<2>();    // channel 2
-				dec_weights_uquant[texel + 3] = uqw_vec.lane<3>();    // channel 3
-				adjustments = true;
-			}
-		};
-
-		for (; texel < bsd.texel_count; texel++)
-		{
-			int uqw = dec_weights_uquant[texel];
-
-			uint32_t prev_and_next = qat.prev_next_values[uqw];
-			int uqw_down = prev_and_next & 0xFF;
-			int uqw_up = (prev_and_next >> 8) & 0xFF;
-
-			// Interpolate the colors to create the diffs
-			float weight_base = static_cast<float>(uqw);
-			float weight_down = static_cast<float>(uqw_down - uqw);
-			float weight_up = static_cast<float>(uqw_up - uqw);
-
-			unsigned int partition = pi.partition_of_texel[texel];
-			vfloat4 color_offset = offset[partition];
-			vfloat4 color_base   = endpnt0f[partition];
-
-			vfloat4 color = color_base + color_offset * weight_base;
-			vfloat4 orig_color   = blk.texel(texel);
-			vfloat4 error_weight = blk.channel_weight;
-
-			vfloat4 color_diff      = color - orig_color;
-			vfloat4 color_diff_down = color_diff + color_offset * weight_down;
-			vfloat4 color_diff_up   = color_diff + color_offset * weight_up;
-
-			float error_base = dot_s(color_diff      * color_diff,      error_weight);
-			float error_down = dot_s(color_diff_down * color_diff_down, error_weight);
-			float error_up   = dot_s(color_diff_up   * color_diff_up,   error_weight);
-
-			// Check if the prev or next error is better, and if so use it
-			if ((error_up < error_base) && (error_up < error_down) && (uqw < 64))
-			{
-				dec_weights_uquant[texel] = static_cast<uint8_t>(uqw_up);
-				adjustments = true;
-			}
-			else if ((error_down < error_base) && (uqw > 0))
-			{
-				dec_weights_uquant[texel] = static_cast<uint8_t>(uqw_down);
-				adjustments = true;
-			}
-		}
-
-		// Prepare iteration for plane 2
-		dec_weights_uquant += WEIGHTS_PLANE2_OFFSET;
-		plane_mask = ~plane_mask;
-	}
-	return adjustments;
-}
-#else
 static bool realign_weights_undecimated(
 	astcenc_profile decode_mode,
 	const block_size_descriptor& bsd,
@@ -383,7 +172,6 @@ static bool realign_weights_undecimated(
 
 	return adjustments;
 }
-#endif
 
 /**
  * @brief Attempt to improve weights given a chosen configuration.
@@ -563,7 +351,6 @@ static bool realign_weights_decimated(
  * @param[out] tmpbuf                    The quantized weights for plane 1.
  */
 static float compress_symbolic_block_for_partition_1plane(
-	QualityProfile privateProfile,
 	const astcenc_config& config,
 	const block_size_descriptor& bsd,
 	const image_block& blk,
@@ -632,7 +419,7 @@ static float compress_symbolic_block_for_partition_1plane(
 
 	// For each mode, use the angular method to compute a shift
 	compute_angular_endpoints_1plane(
-	    privateProfile, only_always, bsd, dec_weights_ideal, max_weight_quant, tmpbuf);
+	    only_always, bsd, dec_weights_ideal, max_weight_quant, tmpbuf);
 
 	float* weight_low_value = tmpbuf.weight_low_value1;
 	float* weight_high_value = tmpbuf.weight_high_value1;
@@ -706,7 +493,6 @@ static float compress_symbolic_block_for_partition_1plane(
 	quant_method color_quant_level_mod[TUNE_MAX_TRIAL_CANDIDATES];
 
 	unsigned int candidate_count = compute_ideal_endpoint_formats(
-	    privateProfile,
 	    pi, blk, ei.ep, qwt_bitcounts, qwt_errors,
 	    config.tune_candidate_limit, 0, max_block_modes,
 	    partition_format_specifiers, block_mode_index,
@@ -758,7 +544,6 @@ static float compress_symbolic_block_for_partition_1plane(
 			for (unsigned int j = 0; j < partition_count; j++)
 			{
 				workscb.color_formats[j] = pack_color_endpoints(
-				    privateProfile,
 				    workep.endpt0[j],
 				    workep.endpt1[j],
 				    rgbs_colors[j],
@@ -782,7 +567,6 @@ static float compress_symbolic_block_for_partition_1plane(
 				for (unsigned int j = 0; j < partition_count; j++)
 				{
 					color_formats_mod[j] = pack_color_endpoints(
-					    privateProfile,
 					    workep.endpt0[j],
 					    workep.endpt1[j],
 					    rgbs_colors[j],
@@ -821,13 +605,7 @@ static float compress_symbolic_block_for_partition_1plane(
 			workscb.quant_mode = workscb.color_formats_matched ? color_quant_level_mod[i] : color_quant_level[i];
 			workscb.block_mode = qw_bm.mode_index;
 			workscb.block_type = SYM_BTYPE_NONCONST;
-			if (privateProfile == HIGH_SPEED_PROFILE ||
-				privateProfile == HIGH_SPEED_PROFILE_HIGHBITS)
-			{
-				workscb.errorval = 0;
-				scb = workscb;
-				break;
-			}
+
 			// Pre-realign test
 			if (l == 0)
 			{
@@ -936,7 +714,6 @@ static float compress_symbolic_block_for_partition_1plane(
  * @param[out] tmpbuf                    The quantized weights for plane 1.
  */
 static float compress_symbolic_block_for_partition_2planes(
-	QualityProfile privateProfile,
 	const astcenc_config& config,
 	const block_size_descriptor& bsd,
 	const image_block& blk,
@@ -1009,7 +786,7 @@ static float compress_symbolic_block_for_partition_2planes(
 	float min_wt_cutoff2 = hmin_s(select(err_max, min_ep2, err_mask));
 
 	compute_angular_endpoints_2planes(
-	    privateProfile, bsd, dec_weights_ideal, max_weight_quant, tmpbuf);
+	    bsd, dec_weights_ideal, max_weight_quant, tmpbuf);
 
 	// For each mode (which specifies a decimation and a quantization):
 	//     * Compute number of bits needed for the quantized weights
@@ -1095,7 +872,6 @@ static float compress_symbolic_block_for_partition_2planes(
 
 	const auto& pi = bsd.get_partition_info(1, 0);
 	unsigned int candidate_count = compute_ideal_endpoint_formats(
-	    config.privateProfile,
 	    pi, blk, epm, qwt_bitcounts, qwt_errors,
 	    config.tune_candidate_limit,
 		bsd.block_mode_count_1plane_selected, bsd.block_mode_count_1plane_2plane_selected,
@@ -1148,7 +924,6 @@ static float compress_symbolic_block_for_partition_2planes(
 
 			// Quantize the chosen color
 			workscb.color_formats[0] = pack_color_endpoints(
-			                               privateProfile,
 			                               workep.endpt0[0],
 			                               workep.endpt1[0],
 			                               rgbs_color, rgbo_color,
@@ -1389,14 +1164,7 @@ void compress_block(
 	const astcenc_contexti& ctx,
 	const image_block& blk,
 	uint8_t pcb[16],
-#if QUALITY_CONTROL
-	compression_working_buffers& tmpbuf,
-	bool calQualityEnable,
-	int32_t *mseBlock[RGBA_COM]
-#else
-	compression_working_buffers& tmpbuf
-#endif
-	)
+	compression_working_buffers& tmpbuf)
 {
 	astcenc_profile decode_mode = ctx.config.profile;
 	symbolic_compressed_block scb;
@@ -1417,28 +1185,7 @@ void compress_block(
 	float block_is_la_scale = block_is_la ? 1.0f / 1.05f : 1.0f;
 
 	bool block_skip_two_plane = false;
-	int max_partitions;
-	if (ctx.config.privateProfile == HIGH_SPEED_PROFILE ||
-		ctx.config.privateProfile == HIGH_SPEED_PROFILE_HIGHBITS)
-	{
-		max_partitions = 1;
-	}
-#ifdef ASTC_CUSTOMIZED_ENABLE
-	else if (ctx.config.privateProfile == CUSTOMIZED_PROFILE)
-	{
-		if (!g_astcCustomizedSoManager.LoadSutCustomizedSo() ||
-			g_astcCustomizedSoManager.customizedMaxPartitionsFunc_ == nullptr)
-		{
-			printf("astcenc customized so dlopen failed or customizedMaxPartitionsFunc_ is nullptr!\n");
-			return;
-		}
-		max_partitions = g_astcCustomizedSoManager.customizedMaxPartitionsFunc_();
-	}
-#endif
-	else
-	{
-		max_partitions = ctx.config.tune_partition_count_limit;
-	}
+	int max_partitions = ctx.config.tune_partition_count_limit;
 
 	unsigned int requested_partition_indices[3] {
 		ctx.config.tune_2partition_index_limit,
@@ -1493,47 +1240,8 @@ void compress_block(
 		}
 
 		trace_add_data("exit", "quality hit");
-		if (ctx.config.privateProfile != HIGH_QUALITY_PROFILE &&
-			ctx.config.privateProfile != HIGH_SPEED_PROFILE_HIGHBITS)
-		{
-			scb.block_type = SYM_BTYPE_NONCONST;
-			scb.partition_count = 1;
-			scb.color_formats_matched = 0;
-			scb.plane2_component = -1;
-			if (ctx.config.privateProfile == HIGH_SPEED_PROFILE)
-			{
-				scb.block_mode = HIGH_SPEED_PROFILE_BLOCK_MODE;
-			}
-#ifdef ASTC_CUSTOMIZED_ENABLE
-			else if (ctx.config.privateProfile == CUSTOMIZED_PROFILE)
-			{
-				if (!g_astcCustomizedSoManager.LoadSutCustomizedSo() ||
-					g_astcCustomizedSoManager.customizedBlockModeFunc_ == nullptr)
-				{
-					printf("astcenc customized so dlopen failed or customizedBlockModeFunc_ is nullptr!\n");
-					return;
-				}
-				scb.block_mode = g_astcCustomizedSoManager.customizedBlockModeFunc_();
-			}
-#endif
-			scb.partition_index = 0;
-			scb.quant_mode = QUANT_256;
-			scb.color_formats[0] = 12; // color format is 12 when block mode is HIGH_SPEED_PROFILE_BLOCK_MODE
-			for (int w = 0; w < 16; w++) { // weights num is 16 when block mode is HIGH_SPEED_PROFILE_BLOCK_MODE
-				scb.weights[w] = 0;
-			}
-			for (unsigned int pixel = 0; pixel < BLOCK_MAX_COMPONENTS; pixel++) { // scb.constant_color[pixel] is 16 bit
-				scb.color_values[0][pixel << 1] = scb.constant_color[pixel] & BYTE_MASK; // low byte
-				scb.color_values[0][(pixel << 1) + 1] = (scb.constant_color[pixel] >> 8) & BYTE_MASK; // high byte
-			}
-		}
-		scb.privateProfile = ctx.config.privateProfile;
+
 		symbolic_to_physical(bsd, scb, pcb);
-#if QUALITY_CONTROL
-	if (calQualityEnable) {
-		*mseBlock[R_COM] = *mseBlock[G_COM] = *mseBlock[B_COM] = *mseBlock[A_COM] = 0;
-	}
-#endif
 		return;
 	}
 
@@ -1572,7 +1280,7 @@ void compress_block(
 		1.0f
 	};
 
-	static const float errorval_overshoot = 1.0f / ctx.config.tune_mse_overshoot;
+	const float errorval_overshoot = 1.0f / ctx.config.tune_mse_overshoot;
 
 	// Only enable MODE0 fast path if enabled
 	// Never enable for 3D blocks as no "always" block modes are available
@@ -1591,7 +1299,6 @@ void compress_block(
 		trace_add_data("search_mode", i);
 
 		float errorval = compress_symbolic_block_for_partition_1plane(
-		    ctx.config.privateProfile,
 		    ctx.config, bsd, blk, i == 0,
 		    error_threshold * errorval_mult[i] * errorval_overshoot,
 		    1, 0,  scb, tmpbuf, QUANT_32);
@@ -1601,9 +1308,7 @@ void compress_block(
 		quant_limit = bm.get_weight_quant_mode();
 
 		best_errorvals_for_pcount[0] = astc::min(best_errorvals_for_pcount[0], errorval);
-		if ((ctx.config.privateProfile == HIGH_SPEED_PROFILE ||
-			ctx.config.privateProfile == HIGH_SPEED_PROFILE_HIGHBITS) ||
-			(errorval < (error_threshold * errorval_mult[i])))
+		if (errorval < (error_threshold * errorval_mult[i]))
 		{
 			trace_add_data("exit", "quality hit");
 			goto END_OF_TESTS;
@@ -1620,10 +1325,6 @@ void compress_block(
 	// alpha is the most likely to be non-correlated if it is present in the data.
 	for (int i = BLOCK_MAX_COMPONENTS - 1; i >= 0; i--)
 	{
-		if (ctx.config.privateProfile != HIGH_QUALITY_PROFILE)
-		{
-			break;
-		}
 		TRACE_NODE(node1, "pass");
 		trace_add_data("partition_count", 1);
 		trace_add_data("plane_count", 2);
@@ -1648,7 +1349,6 @@ void compress_block(
 		}
 
 		float errorval = compress_symbolic_block_for_partition_2planes(
-		    ctx.config.privateProfile,
 		    ctx.config, bsd, blk, error_threshold * errorval_overshoot,
 		    i, scb, tmpbuf, quant_limit);
 
@@ -1690,7 +1390,6 @@ void compress_block(
 			trace_add_data("search_mode", i);
 
 			float errorval = compress_symbolic_block_for_partition_1plane(
-			    ctx.config.privateProfile,
 			    ctx.config, bsd, blk, false,
 			    error_threshold * errorval_overshoot,
 			    partition_count, partition_indices[i],
@@ -1751,25 +1450,7 @@ END_OF_TESTS:
 	}
 
 	// Compress to a physical block
-	scb.privateProfile = ctx.config.privateProfile;
 	symbolic_to_physical(bsd, scb, pcb);
-#if QUALITY_CONTROL
-	if (calQualityEnable) {
-		image_block decBlk = blk;
-		decompress_symbolic_block(ctx.config.profile, bsd, blk.xpos, blk.ypos, blk.zpos, scb, decBlk);
-		vint4 colorSumDiff = vint4::zero();
-		for (size_t ii = 0; ii < bsd.texel_count; ii++) {
-			vint4 colorRef = float_to_int_rtn(blk.texel(ii) * 255.0f / 65535.0f);
-			vint4 colorTest = float_to_int_rtn(min(decBlk.texel(ii), 1.0f) * 255.0f);
-			vint4 colorDiff = colorRef - colorTest;
-			colorSumDiff += colorDiff * colorDiff;
-		}
-		*mseBlock[R_COM] = colorSumDiff.lane<0>();
-		*mseBlock[G_COM] = colorSumDiff.lane<1>();
-		*mseBlock[B_COM] = colorSumDiff.lane<2>();
-		*mseBlock[A_COM] = colorSumDiff.lane<3>();
-    }
-#endif
 }
 
 #endif
