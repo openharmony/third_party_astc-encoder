@@ -30,19 +30,6 @@
 #endif
 #include <cstdlib>
 #include <limits>
-#include <mutex>
-
-#ifdef ASTC_CUSTOMIZED_ENABLE
-#include <unistd.h>
-#include <string>
-#if defined(_WIN32) && !defined(__CYGWIN__)
-#define NOMINMAX
-#include <windows.h>
-#include <io.h>
-#else
-#include <dlfcn.h>
-#endif
-#endif
 
 #include "astcenc.h"
 #include "astcenc_mathlib.h"
@@ -339,10 +326,10 @@ struct partition_info
 	uint8_t partition_texel_count[BLOCK_MAX_PARTITIONS];
 
 	/** @brief The partition of each texel in the block. */
-	uint8_t partition_of_texel[BLOCK_MAX_TEXELS];
+	ASTCENC_ALIGNAS uint8_t partition_of_texel[BLOCK_MAX_TEXELS];
 
 	/** @brief The list of texels in each partition. */
-	uint8_t texels_of_partition[BLOCK_MAX_PARTITIONS][BLOCK_MAX_TEXELS];
+	ASTCENC_ALIGNAS uint8_t texels_of_partition[BLOCK_MAX_PARTITIONS][BLOCK_MAX_TEXELS];
 };
 
 /**
@@ -380,19 +367,19 @@ struct decimation_info
 	 * @brief The number of weights that contribute to each texel.
 	 * Value is between 1 and 4.
 	 */
-	uint8_t texel_weight_count[BLOCK_MAX_TEXELS];
+	ASTCENC_ALIGNAS uint8_t texel_weight_count[BLOCK_MAX_TEXELS];
 
 	/**
 	 * @brief The weight index of the N weights that are interpolated for each texel.
 	 * Stored transposed to improve vectorization.
 	 */
-	uint8_t texel_weights_tr[4][BLOCK_MAX_TEXELS];
+	ASTCENC_ALIGNAS uint8_t texel_weights_tr[4][BLOCK_MAX_TEXELS];
 
 	/**
 	 * @brief The bilinear contribution of the N weights that are interpolated for each texel.
 	 * Value is between 0 and 16, stored transposed to improve vectorization.
 	 */
-	uint8_t texel_weight_contribs_int_tr[4][BLOCK_MAX_TEXELS];
+	ASTCENC_ALIGNAS uint8_t texel_weight_contribs_int_tr[4][BLOCK_MAX_TEXELS];
 
 	/**
 	 * @brief The bilinear contribution of the N weights that are interpolated for each texel.
@@ -401,13 +388,13 @@ struct decimation_info
 	ASTCENC_ALIGNAS float texel_weight_contribs_float_tr[4][BLOCK_MAX_TEXELS];
 
 	/** @brief The number of texels that each stored weight contributes to. */
-	uint8_t weight_texel_count[BLOCK_MAX_WEIGHTS];
+	ASTCENC_ALIGNAS uint8_t weight_texel_count[BLOCK_MAX_WEIGHTS];
 
 	/**
 	 * @brief The list of texels that use a specific weight index.
 	 * Stored transposed to improve vectorization.
 	 */
-	uint8_t weight_texels_tr[BLOCK_MAX_TEXELS][BLOCK_MAX_WEIGHTS];
+	ASTCENC_ALIGNAS uint8_t weight_texels_tr[BLOCK_MAX_TEXELS][BLOCK_MAX_WEIGHTS];
 
 	/**
 	 * @brief The bilinear contribution to the N texels that use each weight.
@@ -745,7 +732,11 @@ struct block_size_descriptor
  *
  * The @c data_[rgba] fields store the image data in an encoded SoA float form designed for easy
  * vectorization. Input data is converted to float and stored as values between 0 and 65535. LDR
- * data is stored as direct UNORM data, HDR data is stored as LNS data.
+ * data is stored as direct UNORM data, HDR data is stored as LNS data. They are allocated SIMD
+ * elements over-size to allow vectorized stores of unaligned and partial SIMD lanes (e.g. in a
+ * 6x6x6 block the final row write will read elements 210-217 (vec8) or 214-217 (vec4), which is
+ * two elements above the last real data element). The overspill values are never written to memory,
+ * and would be benign, but the padding avoids hitting undefined behavior.
  *
  * The @c rgb_lns and @c alpha_lns fields that assigned a per-texel use of HDR are only used during
  * decompression. The current compressor will always use HDR endpoint formats when in HDR mode.
@@ -753,18 +744,16 @@ struct block_size_descriptor
 struct image_block
 {
 	/** @brief The input (compress) or output (decompress) data for the red color component. */
-	ASTCENC_ALIGNAS float data_r[BLOCK_MAX_TEXELS];
+	ASTCENC_ALIGNAS float data_r[BLOCK_MAX_TEXELS + ASTCENC_SIMD_WIDTH - 1];
 
 	/** @brief The input (compress) or output (decompress) data for the green color component. */
-	ASTCENC_ALIGNAS float data_g[BLOCK_MAX_TEXELS];
+	ASTCENC_ALIGNAS float data_g[BLOCK_MAX_TEXELS + ASTCENC_SIMD_WIDTH - 1];
 
 	/** @brief The input (compress) or output (decompress) data for the blue color component. */
-	ASTCENC_ALIGNAS float data_b[BLOCK_MAX_TEXELS];
+	ASTCENC_ALIGNAS float data_b[BLOCK_MAX_TEXELS + ASTCENC_SIMD_WIDTH - 1];
 
 	/** @brief The input (compress) or output (decompress) data for the alpha color component. */
-	ASTCENC_ALIGNAS float data_a[BLOCK_MAX_TEXELS];
-
-	mutable partition_metrics pms[BLOCK_MAX_PARTITIONS];
+	ASTCENC_ALIGNAS float data_a[BLOCK_MAX_TEXELS + ASTCENC_SIMD_WIDTH - 1];
 
 	/** @brief The number of texels in the block. */
 	uint8_t texel_count;
@@ -972,7 +961,7 @@ struct ASTCENC_ALIGNAS compression_working_buffers
 	 *
 	 * For two planes, second plane starts at @c WEIGHTS_PLANE2_OFFSET offsets.
 	 */
-	uint8_t dec_weights_uquant[WEIGHTS_MAX_BLOCK_MODES * BLOCK_MAX_WEIGHTS];
+	ASTCENC_ALIGNAS uint8_t dec_weights_uquant[WEIGHTS_MAX_BLOCK_MODES * BLOCK_MAX_WEIGHTS];
 
 	/** @brief Error of the best encoding combination for each block mode. */
 	ASTCENC_ALIGNAS float errors_of_best_combination[WEIGHTS_MAX_BLOCK_MODES];
@@ -1126,7 +1115,7 @@ struct symbolic_compressed_block
 	 *
 	 * If dual plane, the second plane starts at @c weights[WEIGHTS_PLANE2_OFFSET].
 	 */
-	uint8_t weights[BLOCK_MAX_WEIGHTS];
+	ASTCENC_ALIGNAS uint8_t weights[BLOCK_MAX_WEIGHTS];
 
 	/**
 	 * @brief Get the weight quantization used by this block mode.
@@ -1137,7 +1126,6 @@ struct symbolic_compressed_block
 	{
 		return this->quant_mode;
 	}
-	QualityProfile privateProfile;
 };
 
 /**
@@ -1189,9 +1177,6 @@ struct avg_args
 {
 	/** @brief The arguments for the nested variance computation. */
 	pixel_region_args arg;
-
-	/** @brief The image Stride dimensions. */
-	unsigned int img_size_stride;
 
 	/** @brief The image X dimensions. */
 	unsigned int img_size_x;
@@ -1277,12 +1262,7 @@ struct astcenc_contexti
  * @param      mode_cutoff              The block mode percentile cutoff [0-1].
  * @param[out] bsd                      The descriptor to initialize.
  */
-#ifdef ASTC_CUSTOMIZED_ENABLE
-bool init_block_size_descriptor(
-#else
 void init_block_size_descriptor(
-#endif
-	QualityProfile privateProfile,
 	unsigned int x_texels,
 	unsigned int y_texels,
 	unsigned int z_texels,
@@ -1603,19 +1583,13 @@ static inline vmask4 get_u8_component_mask(
 	astcenc_profile decode_mode,
 	const image_block& blk
 ) {
-	vmask4 u8_mask(false);
-	// Decode mode writing to a unorm8 output value
-	if (blk.decode_unorm8)
+	// Decode mode or sRGB forces writing to unorm8 output value
+	if (blk.decode_unorm8 || decode_mode == ASTCENC_PRF_LDR_SRGB)
 	{
-		u8_mask = vmask4(true);
-	}
-	// SRGB writing to a unorm8 RGB value
-	else if (decode_mode == ASTCENC_PRF_LDR_SRGB)
-	{
-		u8_mask = vmask4(true, true, true, false);
+		return vmask4(true);
 	}
 
-	return u8_mask;
+	return vmask4(false);
 }
 
 /**
@@ -1858,7 +1832,6 @@ float compute_error_of_weight_set_2planes(
  * @return The actual endpoint mode used.
  */
 uint8_t pack_color_endpoints(
-	QualityProfile privateProfile,
 	vfloat4 color0,
 	vfloat4 color1,
 	vfloat4 rgbs_color,
@@ -1963,7 +1936,6 @@ void unpack_weights(
  * @return The actual number of candidate matches returned.
  */
 unsigned int compute_ideal_endpoint_formats(
-	QualityProfile privateProfile,
 	const partition_info& pi,
 	const image_block& blk,
 	const endpoints& ep,
@@ -2043,7 +2015,6 @@ void prepare_angular_tables();
  * @param[out] tmpbuf                   Preallocated scratch buffers for the compressor.
  */
 void compute_angular_endpoints_1plane(
-	QualityProfile privateProfile,
 	bool only_always,
 	const block_size_descriptor& bsd,
 	const float* dec_weight_ideal_value,
@@ -2059,7 +2030,6 @@ void compute_angular_endpoints_1plane(
  * @param[out] tmpbuf                   Preallocated scratch buffers for the compressor.
  */
 void compute_angular_endpoints_2planes(
-	QualityProfile privateProfile,
 	const block_size_descriptor& bsd,
 	const float* dec_weight_ideal_value,
 	unsigned int max_weight_quant,
@@ -2081,14 +2051,7 @@ void compress_block(
 	const astcenc_contexti& ctx,
 	const image_block& blk,
 	uint8_t pcb[16],
-#if QUALITY_CONTROL
-	compression_working_buffers& tmpbuf,
-	bool calQualityEnable,
-	int32_t *mseBlock[RGBA_COM]
-#else
-    compression_working_buffers& tmpbuf
-#endif
-	);
+	compression_working_buffers& tmpbuf);
 
 /**
  * @brief Decompress a symbolic block in to an image block.
@@ -2254,170 +2217,5 @@ void aligned_free(T* ptr)
 	free(ptr);
 #endif
 }
-
-#ifdef ASTC_CUSTOMIZED_ENABLE
-#ifdef BUILD_HMOS_SDK
-#if defined(_WIN32) && !defined(__CYGWIN__)
-const LPCSTR g_astcCustomizedSo = "../../hms/toolchains/lib/libastcCustomizedEncode.dll";
-#elif defined(__APPLE__)
-const std::string g_astcCustomizedSo = "../../hms/toolchains/lib/libastcCustomizedEncode.dylib";
-#else
-const std::string g_astcCustomizedSo = "../../hms/toolchains/lib/libastcCustomizedEncode.so";
-#endif
-#else
-#ifdef SUT_PATH_X64
-const std::string g_astcCustomizedSo = "/system/lib64/module/hms/graphic/libastcCustomizedEncode.z.so";
-#else
-const std::string g_astcCustomizedSo = "/system/lib/module/hms/graphic/libastcCustomizedEncode.z.so";
-#endif
-#endif
-using IsCustomizedBlockMode = bool (*)(const int);
-using CustomizedMaxPartitions = int (*)();
-using CustomizedBlockMode = int (*)();
-
-class AstcCustomizedSoManager
-{
-public:
-	AstcCustomizedSoManager()
-	{
-		astcCustomizedSoOpened_ = false;
-		astcCustomizedSoHandle_ = nullptr;
-		isCustomizedBlockModeFunc_ = nullptr;
-		customizedMaxPartitionsFunc_ = nullptr;
-		customizedBlockModeFunc_ = nullptr;
-	}
-	~AstcCustomizedSoManager()
-	{
-		if (astcCustomizedSoOpened_ && astcCustomizedSoHandle_ != nullptr)
-		{
-#if defined(_WIN32) && !defined(__CYGWIN__)
-			if (!FreeLibrary(astcCustomizedSoHandle_))
-			{
-				printf("astc dll FreeLibrary failed: %s\n", g_astcCustomizedSo);
-			}
-#else
-			if (dlclose(astcCustomizedSoHandle_) != 0)
-			{
-				printf("astcenc so dlclose failed: %s\n", g_astcCustomizedSo.c_str());
-			}
-#endif
-		}
-	}
-	IsCustomizedBlockMode isCustomizedBlockModeFunc_;
-	CustomizedMaxPartitions customizedMaxPartitionsFunc_;
-	CustomizedBlockMode customizedBlockModeFunc_;
-	bool LoadSutCustomizedSo()
-	{
-		std::lock_guard<std::mutex> lock(astcCustomizedSoMutex_);
-		if (!astcCustomizedSoOpened_)
-		{
-#if defined(_WIN32) && !defined(__CYGWIN__)
-			if ((_access(g_astcCustomizedSo, 0) == -1))
-			{
-				printf("astc customized dll(%s) is not found!\n", g_astcCustomizedSo);
-				return false;
-			}
-			astcCustomizedSoHandle_ = LoadLibrary(g_astcCustomizedSo);
-			if (astcCustomizedSoHandle_ == nullptr)
-			{
-				printf("astc libAstcCustomizedEnc LoadLibrary failed!\n");
-				return false;
-			}
-			isCustomizedBlockModeFunc_ =
-				reinterpret_cast<IsCustomizedBlockMode>(GetProcAddress(astcCustomizedSoHandle_,
-				"IsCustomizedBlockMode"));
-			if (isCustomizedBlockModeFunc_ == nullptr)
-			{
-				printf("astc isCustomizedBlockModeFunc_ GetProcAddress failed!\n");
-				if (!FreeLibrary(astcCustomizedSoHandle_))
-				{
-					printf("astc isCustomizedBlockModeFunc_ FreeLibrary failed!\n");
-				}
-				return false;
-			}
-			customizedMaxPartitionsFunc_ =
-				reinterpret_cast<CustomizedMaxPartitions>(GetProcAddress(astcCustomizedSoHandle_,
-				"CustomizedMaxPartitions"));
-			if (customizedMaxPartitionsFunc_ == nullptr)
-			{
-				printf("astc customizedMaxPartitionsFunc_ GetProcAddress failed!\n");
-				if (!FreeLibrary(astcCustomizedSoHandle_))
-				{
-					printf("astc customizedMaxPartitionsFunc_ FreeLibrary failed!\n");
-				}
-				return false;
-			}
-			customizedBlockModeFunc_ =
-				reinterpret_cast<CustomizedBlockMode>(GetProcAddress(astcCustomizedSoHandle_,
-				"CustomizedBlockMode"));
-			if (customizedBlockModeFunc_ == nullptr)
-			{
-				printf("astc customizedBlockModeFunc_ GetProcAddress failed!\n");
-				if (!FreeLibrary(astcCustomizedSoHandle_))
-				{
-					printf("astc customizedBlockModeFunc_ FreeLibrary failed!\n");
-				}
-				return false;
-			}
-			printf("astcenc customized dll load success: %s!\n", g_astcCustomizedSo);
-#else
-			if (access(g_astcCustomizedSo.c_str(), F_OK) == -1)
-			{
-				printf("astc customized so(%s) is not found!\n", g_astcCustomizedSo.c_str());
-				return false;
-			}
-			astcCustomizedSoHandle_ = dlopen(g_astcCustomizedSo.c_str(), 1);
-			if (astcCustomizedSoHandle_ == nullptr)
-			{
-				printf("astc libAstcCustomizedEnc dlopen failed!\n");
-				return false;
-			}
-			isCustomizedBlockModeFunc_ =
-				reinterpret_cast<IsCustomizedBlockMode>(dlsym(astcCustomizedSoHandle_,
-				"IsCustomizedBlockMode"));
-			if (isCustomizedBlockModeFunc_ == nullptr)
-			{
-				printf("astc isCustomizedBlockModeFunc_ dlsym failed!\n");
-				dlclose(astcCustomizedSoHandle_);
-				astcCustomizedSoHandle_ = nullptr;
-				return false;
-			}
-			customizedMaxPartitionsFunc_ =
-				reinterpret_cast<CustomizedMaxPartitions>(dlsym(astcCustomizedSoHandle_,
-				"CustomizedMaxPartitions"));
-			if (customizedMaxPartitionsFunc_ == nullptr)
-			{
-				printf("astc customizedMaxPartitionsFunc_ dlsym failed!\n");
-				dlclose(astcCustomizedSoHandle_);
-				astcCustomizedSoHandle_ = nullptr;
-				return false;
-			}
-			customizedBlockModeFunc_ =
-				reinterpret_cast<CustomizedBlockMode>(dlsym(astcCustomizedSoHandle_,
-				"CustomizedBlockMode"));
-			if (customizedBlockModeFunc_ == nullptr)
-			{
-				printf("astc customizedBlockModeFunc_ dlsym failed!\n");
-				dlclose(astcCustomizedSoHandle_);
-				astcCustomizedSoHandle_ = nullptr;
-				return false;
-			}
-			printf("astcenc customized so dlopen success: %s\n", g_astcCustomizedSo.c_str());
-#endif
-			astcCustomizedSoOpened_ = true;
-		}
-		return true;
-	}
-private:
-	bool astcCustomizedSoOpened_;
-#if defined(_WIN32) && !defined(__CYGWIN__)
-	HINSTANCE astcCustomizedSoHandle_;
-#else
-	void *astcCustomizedSoHandle_;
-#endif
-    std::mutex astcCustomizedSoMutex_;
-};
-extern AstcCustomizedSoManager g_astcCustomizedSoManager;
-#endif
 
 #endif

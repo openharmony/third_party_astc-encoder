@@ -98,8 +98,6 @@ static inline void write_bits(
 	ptr[1] |= value >> 8;
 }
 
-static const int HIGH_SPEED_PROFILE_COLOR_BYTES = 8;
-static const int HIGH_SPEED_PROFILE_WEIGHT_BYTES = 16;
 /* See header for documentation. */
 void symbolic_to_physical(
 	const block_size_descriptor& bsd,
@@ -107,8 +105,9 @@ void symbolic_to_physical(
 	uint8_t pcb[16]
 ) {
 	assert(scb.block_type != SYM_BTYPE_ERROR);
+
 	// Constant color block using UNORM16 colors
-	if (scb.block_type == SYM_BTYPE_CONST_U16 && scb.privateProfile != HIGH_SPEED_PROFILE)
+	if (scb.block_type == SYM_BTYPE_CONST_U16)
 	{
 		// There is currently no attempt to coalesce larger void-extents
 		static const uint8_t cbytes[8] { 0xFC, 0xFD, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
@@ -127,7 +126,7 @@ void symbolic_to_physical(
 	}
 
 	// Constant color block using FP16 colors
-	if (scb.block_type == SYM_BTYPE_CONST_F16 && scb.privateProfile != HIGH_SPEED_PROFILE)
+	if (scb.block_type == SYM_BTYPE_CONST_F16)
 	{
 		// There is currently no attempt to coalesce larger void-extents
 		static const uint8_t cbytes[8]  { 0xFC, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
@@ -150,7 +149,7 @@ void symbolic_to_physical(
 	// Compress the weights.
 	// They are encoded as an ordinary integer-sequence, then bit-reversed
 	uint8_t weightbuf[16] { 0 };
-	
+
 	const auto& bm = bsd.get_block_mode(scb.block_mode);
 	const auto& di = bsd.get_decimation_info(bm.decimation_mode);
 	int weight_count = di.weight_count;
@@ -159,34 +158,6 @@ void symbolic_to_physical(
 	int is_dual_plane = bm.is_dual_plane;
 
 	const auto& qat = quant_and_xfer_tables[weight_quant_method];
-
-	if (scb.privateProfile == HIGH_SPEED_PROFILE)
-	{
-		uint8_t weights[64];
-		for (int i = 0; i < weight_count; i++)
-		{
-			float uqw = static_cast<float>(scb.weights[i]);
-			float qw = (uqw / 64.0f) * (weight_quant_levels - 1.0f);
-			int qwi = static_cast<int>(qw + 0.5f);
-			weights[i] = qat.scramble_map[qwi];
-		}
-		encode_ise(QUANT_6, HIGH_SPEED_PROFILE_WEIGHT_BYTES, weights, weightbuf, 0);
-		for (int i = 0; i < HIGH_SPEED_PROFILE_WEIGHT_BYTES; i++)
-		{
-			pcb[i] = static_cast<uint8_t>(bitrev8(weightbuf[HIGH_SPEED_PROFILE_WEIGHT_BYTES - 1 - i]));
-		}
-		pcb[0] = 0x43; // the first byte of every block stream is 0x43 for HIGH_SPEED_PROFILE
-		pcb[1] = 0x80; // the second byte of every block stream is 0x80 for HIGH_SPEED_PROFILE
-		pcb[2] = 0x01; // the third (2 idx) byte of every block stream is 0x01 for HIGH_SPEED_PROFILE
-		uint8_t values_to_encode[HIGH_SPEED_PROFILE_COLOR_BYTES];
-		for (int j = 0; j < HIGH_SPEED_PROFILE_COLOR_BYTES; j++)
-		{
-			values_to_encode[j] = scb.color_values[0][j];
-		}
-		encode_ise(scb.get_color_quant_mode(), HIGH_SPEED_PROFILE_COLOR_BYTES,
-			values_to_encode, pcb, 17); // the color is starting from 17th bit for HIGH_SPEED_PROFILE
-		return;
-	}
 
 	int real_weight_count = is_dual_plane ? 2 * weight_count : weight_count;
 
@@ -359,12 +330,14 @@ void physical_to_symbolic(
 				return;
 			}
 
+			// Low values span 3 bytes so need two read_bits calls
 			int vx_low_s = read_bits(8, 12, pcb) | (read_bits(5, 12 + 8, pcb) << 8);
-			int vx_high_s = read_bits(8, 25, pcb) | (read_bits(5, 25 + 8, pcb) << 8);
+			int vx_high_s = read_bits(13, 25, pcb);
 			int vx_low_t = read_bits(8, 38, pcb) | (read_bits(5, 38 + 8, pcb) << 8);
-			int vx_high_t = read_bits(8, 51, pcb) | (read_bits(5, 51 + 8, pcb) << 8);
+			int vx_high_t = read_bits(13, 51, pcb);
 
-			int all_ones = vx_low_s == 0x1FFF && vx_high_s == 0x1FFF && vx_low_t == 0x1FFF && vx_high_t == 0x1FFF;
+			int all_ones = vx_low_s == 0x1FFF && vx_high_s == 0x1FFF &&
+			               vx_low_t == 0x1FFF && vx_high_t == 0x1FFF;
 
 			if ((vx_low_s >= vx_high_s || vx_low_t >= vx_high_t) && !all_ones)
 			{
@@ -379,12 +352,14 @@ void physical_to_symbolic(
 			int vx_high_s = read_bits(9, 19, pcb);
 			int vx_low_t = read_bits(9, 28, pcb);
 			int vx_high_t = read_bits(9, 37, pcb);
-			int vx_low_p = read_bits(9, 46, pcb);
-			int vx_high_p = read_bits(9, 55, pcb);
+			int vx_low_r = read_bits(9, 46, pcb);
+			int vx_high_r = read_bits(9, 55, pcb);
 
-			int all_ones = vx_low_s == 0x1FF && vx_high_s == 0x1FF && vx_low_t == 0x1FF && vx_high_t == 0x1FF && vx_low_p == 0x1FF && vx_high_p == 0x1FF;
+			int all_ones = vx_low_s == 0x1FF && vx_high_s == 0x1FF &&
+			               vx_low_t == 0x1FF && vx_high_t == 0x1FF &&
+			               vx_low_r == 0x1FF && vx_high_r == 0x1FF;
 
-			if ((vx_low_s >= vx_high_s || vx_low_t >= vx_high_t || vx_low_p >= vx_high_p) && !all_ones)
+			if ((vx_low_s >= vx_high_s || vx_low_t >= vx_high_t || vx_low_r >= vx_high_r) && !all_ones)
 			{
 				scb.block_type = SYM_BTYPE_ERROR;
 				return;
@@ -499,8 +474,7 @@ void physical_to_symbolic(
 				bitpos += 2;
 			}
 		}
-		scb.partition_index = static_cast<uint16_t>(read_bits(6, 13, pcb) |
-		                                            (read_bits(PARTITION_INDEX_BITS - 6, 19, pcb) << 6));
+		scb.partition_index = static_cast<uint16_t>(read_bits(10, 13, pcb));
 	}
 
 	for (int i = 0; i < partition_count; i++)
