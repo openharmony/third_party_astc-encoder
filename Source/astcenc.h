@@ -266,6 +266,10 @@ enum astcenc_error {
 #if QUALITY_CONTROL
 	ASTCENC_ERR_BAD_QUALITY_CHECK
 #endif
+#ifdef ASTC_CUSTOMIZED_ENABLE
+	,
+	ASTCENC_ERR_DLOPEN_FAILED
+#endif
 };
 
 /**
@@ -952,6 +956,7 @@ public:
 		if (!astcCustomizedSoOpened_ || astcCustomizedSoHandle_ == nullptr)
 		{
 			printf("astcenc customized so is not be opened when dlclose!\n");
+			return;
 		}
 #if defined(_WIN32) && !defined(__CYGWIN__)
 		if (!FreeLibrary(astcCustomizedSoHandle_))
