@@ -857,6 +857,18 @@ static void construct_block_size_descriptor_2d(
 			{
 				continue;
 			}
+#ifdef ASTC_CUSTOMIZED_ENABLE
+			if (!g_astcCustomizedSoManager.LoadSutCustomizedSo() ||
+				g_astcCustomizedSoManager.isCustomizedBlockModeFunc_ == nullptr)
+			{
+				printf("astcenc customized so dlopen failed or isCustomizedBlockModeFunc_ is nullptr!\n");
+				return;
+			}
+			if ((privateProfile == CUSTOMIZED_PROFILE) && (!g_astcCustomizedSoManager.isCustomizedBlockModeFunc_(i)))
+			{
+				continue;
+			}
+#endif
 			// Decode parameters
 			unsigned int x_weights;
 			unsigned int y_weights;
