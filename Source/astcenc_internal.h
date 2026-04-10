@@ -1126,6 +1126,7 @@ struct symbolic_compressed_block
 	{
 		return this->quant_mode;
 	}
+	QualityProfile privateProfile;
 };
 
 /**
@@ -1266,6 +1267,7 @@ struct astcenc_contexti
  * @param[out] bsd                      The descriptor to initialize.
  */
 void init_block_size_descriptor(
+	QualityProfile privateProfile,
 	unsigned int x_texels,
 	unsigned int y_texels,
 	unsigned int z_texels,
@@ -1835,6 +1837,7 @@ float compute_error_of_weight_set_2planes(
  * @return The actual endpoint mode used.
  */
 uint8_t pack_color_endpoints(
+	QualityProfile privateProfile,
 	vfloat4 color0,
 	vfloat4 color1,
 	vfloat4 rgbs_color,
@@ -1939,6 +1942,7 @@ void unpack_weights(
  * @return The actual number of candidate matches returned.
  */
 unsigned int compute_ideal_endpoint_formats(
+	QualityProfile privateProfile,
 	const partition_info& pi,
 	const image_block& blk,
 	const endpoints& ep,

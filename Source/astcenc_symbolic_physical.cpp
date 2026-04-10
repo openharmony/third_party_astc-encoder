@@ -98,6 +98,8 @@ static inline void write_bits(
 	ptr[1] |= value >> 8;
 }
 
+static const int HIGH_SPEED_PROFILE_COLOR_BYTES = 8;
+static const int HIGH_SPEED_PROFILE_WEIGHT_BYTES = 16;
 /* See header for documentation. */
 void symbolic_to_physical(
 	const block_size_descriptor& bsd,
@@ -105,6 +107,26 @@ void symbolic_to_physical(
 	uint8_t pcb[16]
 ) {
 	assert(scb.block_type != SYM_BTYPE_ERROR);
+	if (scb.privateProfile == HIGH_SPEED_PROFILE)
+	{
+		uint8_t weightbuf[HIGH_SPEED_PROFILE_WEIGHT_BYTES] = {0};
+		encode_ise(QUANT_6, HIGH_SPEED_PROFILE_WEIGHT_BYTES, scb.weights, weightbuf, 0);
+		for (int i = 0; i < HIGH_SPEED_PROFILE_WEIGHT_BYTES; i++)
+		{
+			pcb[i] = static_cast<uint8_t>(bitrev8(weightbuf[HIGH_SPEED_PROFILE_WEIGHT_BYTES - 1 - i]));
+		}
+		pcb[0] = 0x43; // the first byte of every block stream is 0x43 for HIGH_SPEED_PROFILE
+		pcb[1] = 0x80; // the second byte of every block stream is 0x80 for HIGH_SPEED_PROFILE
+		pcb[2] = 0x01; // the third (2 idx) byte of every block stream is 0x01 for HIGH_SPEED_PROFILE
+		uint8_t values_to_encode[HIGH_SPEED_PROFILE_COLOR_BYTES];
+		for (int j = 0; j < HIGH_SPEED_PROFILE_COLOR_BYTES; j++)
+		{
+			values_to_encode[j] = scb.color_values[0][j];
+		}
+		encode_ise(scb.get_color_quant_mode(), HIGH_SPEED_PROFILE_COLOR_BYTES,
+			values_to_encode, pcb, 17); // the color is starting from 17th bit for HIGH_SPEED_PROFILE
+		return;
+	}
 
 	// Constant color block using UNORM16 colors
 	if (scb.block_type == SYM_BTYPE_CONST_U16)
