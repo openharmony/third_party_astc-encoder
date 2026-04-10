@@ -682,7 +682,7 @@ static float one_partition_find_best_combination_for_bitcount(
 
 	for (int integer_count = 1; integer_count <= 4;  integer_count++)
 	{
-		if (privateProfile == HIGH_SPEED_PROFILE)
+		if (privateProfile != HIGH_QUALITY_PROFILE)
 		{
 			integer_count = 4; // constant 4 bit count for HIGH_SPEED_PROFILE mode
 		}
@@ -706,7 +706,7 @@ static float one_partition_find_best_combination_for_bitcount(
 	int ql = quant_mode_table[best_integer_count + 1][bits_available];
 
 	best_quant_level = static_cast<uint8_t>(ql);
-	if (privateProfile == HIGH_SPEED_PROFILE) // keep openSource code style
+	if (privateProfile != HIGH_QUALITY_PROFILE) // keep openSource code style
 	{
 		best_format = FMT_RGBA;
 	}
@@ -784,6 +784,7 @@ static void two_partitions_find_best_combination_for_every_quantization_and_inte
  * @return The output error for the best pairing.
  */
 static float two_partitions_find_best_combination_for_bitcount(
+	unsigned int privateProfile,
 	float best_combined_error[21][7],
 	uint8_t best_combined_format[21][7][2],
 	int bits_available,
@@ -793,8 +794,13 @@ static float two_partitions_find_best_combination_for_bitcount(
 ) {
 	int best_integer_count = 0;
 	float best_integer_count_error = ERROR_CALC_DEFAULT;
+	int integer_count = 2;
+	if (privateProfile != HIGH_QUALITY_PROFILE)
+	{
+		integer_count = 8;  // constant 8 bit count
+	}
 
-	for (int integer_count = 2; integer_count <= 8; integer_count++)
+	for (; integer_count <= 8; integer_count++)
 	{
 		// Compute the quantization level for a given number of integers and a given number of bits
 		int quant_level = quant_mode_table[integer_count][bits_available];
@@ -1209,9 +1215,10 @@ unsigned int compute_ideal_endpoint_formats(
 			}
 
 			float error_of_best = two_partitions_find_best_combination_for_bitcount(
-			    combined_best_error, formats_of_choice, qwt_bitcounts[i],
-			    best_quant_levels[i], best_quant_levels_mod[i],
-			    best_ep_formats[i]);
+				privateProfile,
+				combined_best_error, formats_of_choice, qwt_bitcounts[i],
+				best_quant_levels[i], best_quant_levels_mod[i],
+				best_ep_formats[i]);
 
 			float total_error = error_of_best + qwt_errors[i];
 			errors_of_best_combination[i] = total_error;
