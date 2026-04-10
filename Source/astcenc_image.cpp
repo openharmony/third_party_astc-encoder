@@ -160,7 +160,6 @@ void load_image_block(
 ) {
 	unsigned int xsize = img.dim_x;
 	unsigned int ysize = img.dim_y;
-	unsigned int stride = img.dim_stride;
 	unsigned int zsize = img.dim_z;
 
 	blk.xpos = xpos;
@@ -281,6 +280,7 @@ void load_image_block_fast_ldr(
 
 	unsigned int xsize = img.dim_x;
 	unsigned int ysize = img.dim_y;
+	unsigned int stride = img.dim_stride;
 
 	blk.xpos = xpos;
 	blk.ypos = ypos;
