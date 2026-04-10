@@ -789,7 +789,11 @@ static void construct_dt_entry_2d(
  * @param      mode_cutoff      Percentile cutoff in range [0,1]. Low values more likely to be used.
  * @param[out] bsd              The block size descriptor to populate.
  */
+#ifdef ASTC_CUSTOMIZED_ENABLE
+static bool construct_block_size_descriptor_2d(
+#else
 static void construct_block_size_descriptor_2d(
+#endif
 	QualityProfile privateProfile,
 	unsigned int x_texels,
 	unsigned int y_texels,
@@ -858,15 +862,22 @@ static void construct_block_size_descriptor_2d(
 				continue;
 			}
 #ifdef ASTC_CUSTOMIZED_ENABLE
-			if (!g_astcCustomizedSoManager.LoadSutCustomizedSo() ||
-				g_astcCustomizedSoManager.isCustomizedBlockModeFunc_ == nullptr)
+			if (privateProfile == CUSTOMIZED_PROFILE)
 			{
-				printf("astcenc customized so dlopen failed or isCustomizedBlockModeFunc_ is nullptr!\n");
-				return;
-			}
-			if ((privateProfile == CUSTOMIZED_PROFILE) && (!g_astcCustomizedSoManager.isCustomizedBlockModeFunc_(i)))
-			{
-				continue;
+				if (!g_astcCustomizedSoManager.LoadSutCustomizedSo() ||
+					g_astcCustomizedSoManager.isCustomizedBlockModeFunc_ == nullptr)
+				{
+					printf("astcenc customized so dlopen failed or isCustomizedBlockModeFunc_ is nullptr!\n");
+					delete wb;
+#if !defined(ASTCENC_DECOMPRESS_ONLY)
+					delete[] percentiles;
+#endif
+					return false;
+				}
+				if (!g_astcCustomizedSoManager.isCustomizedBlockModeFunc_(i))
+				{
+					continue;
+				}
 			}
 #endif
 			// Decode parameters
@@ -997,6 +1008,9 @@ static void construct_block_size_descriptor_2d(
 	assign_kmeans_texels(bsd);
 
 	delete wb;
+#ifdef ASTC_CUSTOMIZED_ENABLE
+	return true;
+#endif
 }
 
 /**
@@ -1182,7 +1196,11 @@ static void construct_block_size_descriptor_3d(
 }
 
 /* See header for documentation. */
+#ifdef ASTC_CUSTOMIZED_ENABLE
+bool init_block_size_descriptor(
+#else
 void init_block_size_descriptor(
+#endif
 	QualityProfile privateProfile,
 	unsigned int x_texels,
 	unsigned int y_texels,
@@ -1198,8 +1216,18 @@ void init_block_size_descriptor(
 	}
 	else
 	{
+#ifdef ASTC_CUSTOMIZED_ENABLE
+		if (!construct_block_size_descriptor_2d(privateProfile, x_texels, y_texels, can_omit_modes, mode_cutoff, bsd))
+		{
+			return false;
+		}
+#else
 		construct_block_size_descriptor_2d(privateProfile, x_texels, y_texels, can_omit_modes, mode_cutoff, bsd);
+#endif
 	}
 
 	init_partition_tables(bsd, can_omit_modes, partition_count_cutoff);
+#ifdef ASTC_CUSTOMIZED_ENABLE
+	return true;
+#endif
 }
