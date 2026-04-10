@@ -107,29 +107,8 @@ void symbolic_to_physical(
 	uint8_t pcb[16]
 ) {
 	assert(scb.block_type != SYM_BTYPE_ERROR);
-	if (scb.privateProfile == HIGH_SPEED_PROFILE)
-	{
-		uint8_t weightbuf[HIGH_SPEED_PROFILE_WEIGHT_BYTES] = {0};
-		encode_ise(QUANT_6, HIGH_SPEED_PROFILE_WEIGHT_BYTES, scb.weights, weightbuf, 0);
-		for (int i = 0; i < HIGH_SPEED_PROFILE_WEIGHT_BYTES; i++)
-		{
-			pcb[i] = static_cast<uint8_t>(bitrev8(weightbuf[HIGH_SPEED_PROFILE_WEIGHT_BYTES - 1 - i]));
-		}
-		pcb[0] = 0x43; // the first byte of every block stream is 0x43 for HIGH_SPEED_PROFILE
-		pcb[1] = 0x80; // the second byte of every block stream is 0x80 for HIGH_SPEED_PROFILE
-		pcb[2] = 0x01; // the third (2 idx) byte of every block stream is 0x01 for HIGH_SPEED_PROFILE
-		uint8_t values_to_encode[HIGH_SPEED_PROFILE_COLOR_BYTES];
-		for (int j = 0; j < HIGH_SPEED_PROFILE_COLOR_BYTES; j++)
-		{
-			values_to_encode[j] = scb.color_values[0][j];
-		}
-		encode_ise(scb.get_color_quant_mode(), HIGH_SPEED_PROFILE_COLOR_BYTES,
-			values_to_encode, pcb, 17); // the color is starting from 17th bit for HIGH_SPEED_PROFILE
-		return;
-	}
-
 	// Constant color block using UNORM16 colors
-	if (scb.block_type == SYM_BTYPE_CONST_U16)
+	if (scb.block_type == SYM_BTYPE_CONST_U16 && scb.privateProfile != HIGH_SPEED_PROFILE)
 	{
 		// There is currently no attempt to coalesce larger void-extents
 		static const uint8_t cbytes[8] { 0xFC, 0xFD, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
@@ -148,7 +127,7 @@ void symbolic_to_physical(
 	}
 
 	// Constant color block using FP16 colors
-	if (scb.block_type == SYM_BTYPE_CONST_F16)
+	if (scb.block_type == SYM_BTYPE_CONST_F16 && scb.privateProfile != HIGH_SPEED_PROFILE)
 	{
 		// There is currently no attempt to coalesce larger void-extents
 		static const uint8_t cbytes[8]  { 0xFC, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
@@ -180,6 +159,34 @@ void symbolic_to_physical(
 	int is_dual_plane = bm.is_dual_plane;
 
 	const auto& qat = quant_and_xfer_tables[weight_quant_method];
+
+	if (scb.privateProfile == HIGH_SPEED_PROFILE)
+	{
+		uint8_t weights[64];
+		for (int i = 0; i < weight_count; i++)
+		{
+			float uqw = static_cast<float>(scb.weights[i]);
+			float qw = (uqw / 64.0f) * (weight_quant_levels - 1.0f);
+			int qwi = static_cast<int>(qw + 0.5f);
+			weights[i] = qat.scramble_map[qwi];
+		}
+		encode_ise(QUANT_6, HIGH_SPEED_PROFILE_WEIGHT_BYTES, weights, weightbuf, 0);
+		for (int i = 0; i < HIGH_SPEED_PROFILE_WEIGHT_BYTES; i++)
+		{
+			pcb[i] = static_cast<uint8_t>(bitrev8(weightbuf[HIGH_SPEED_PROFILE_WEIGHT_BYTES - 1 - i]));
+		}
+		pcb[0] = 0x43; // the first byte of every block stream is 0x43 for HIGH_SPEED_PROFILE
+		pcb[1] = 0x80; // the second byte of every block stream is 0x80 for HIGH_SPEED_PROFILE
+		pcb[2] = 0x01; // the third (2 idx) byte of every block stream is 0x01 for HIGH_SPEED_PROFILE
+		uint8_t values_to_encode[HIGH_SPEED_PROFILE_COLOR_BYTES];
+		for (int j = 0; j < HIGH_SPEED_PROFILE_COLOR_BYTES; j++)
+		{
+			values_to_encode[j] = scb.color_values[0][j];
+		}
+		encode_ise(scb.get_color_quant_mode(), HIGH_SPEED_PROFILE_COLOR_BYTES,
+			values_to_encode, pcb, 17); // the color is starting from 17th bit for HIGH_SPEED_PROFILE
+		return;
+	}
 
 	int real_weight_count = is_dual_plane ? 2 * weight_count : weight_count;
 
