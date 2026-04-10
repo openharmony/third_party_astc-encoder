@@ -681,6 +681,13 @@ astcenc_error astcenc_context_alloc(
 	}
 #endif
 
+#ifndef ASTC_CUSTOMIZED_ENABLE
+	if (config.privateProfile == CUSTOMIZED_PROFILE)
+	{
+		return ASTCENC_ERR_BAD_PARAM;
+	}
+#endif
+
 	astcenc_context* ctxo = new astcenc_context;
 	astcenc_contexti* ctx = &ctxo->context;
 	ctx->thread_count = thread_count;
