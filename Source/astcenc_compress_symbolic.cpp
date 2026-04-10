@@ -351,6 +351,7 @@ static bool realign_weights_decimated(
  * @param[out] tmpbuf                    The quantized weights for plane 1.
  */
 static float compress_symbolic_block_for_partition_1plane(
+	QualityProfile privateProfile,
 	const astcenc_config& config,
 	const block_size_descriptor& bsd,
 	const image_block& blk,
@@ -493,6 +494,7 @@ static float compress_symbolic_block_for_partition_1plane(
 	quant_method color_quant_level_mod[TUNE_MAX_TRIAL_CANDIDATES];
 
 	unsigned int candidate_count = compute_ideal_endpoint_formats(
+	    privateProfile,
 	    pi, blk, ei.ep, qwt_bitcounts, qwt_errors,
 	    config.tune_candidate_limit, 0, max_block_modes,
 	    partition_format_specifiers, block_mode_index,
@@ -544,6 +546,7 @@ static float compress_symbolic_block_for_partition_1plane(
 			for (unsigned int j = 0; j < partition_count; j++)
 			{
 				workscb.color_formats[j] = pack_color_endpoints(
+				    privateProfile,
 				    workep.endpt0[j],
 				    workep.endpt1[j],
 				    rgbs_colors[j],
@@ -567,6 +570,7 @@ static float compress_symbolic_block_for_partition_1plane(
 				for (unsigned int j = 0; j < partition_count; j++)
 				{
 					color_formats_mod[j] = pack_color_endpoints(
+					    privateProfile,
 					    workep.endpt0[j],
 					    workep.endpt1[j],
 					    rgbs_colors[j],
@@ -605,7 +609,12 @@ static float compress_symbolic_block_for_partition_1plane(
 			workscb.quant_mode = workscb.color_formats_matched ? color_quant_level_mod[i] : color_quant_level[i];
 			workscb.block_mode = qw_bm.mode_index;
 			workscb.block_type = SYM_BTYPE_NONCONST;
-
+			if (privateProfile == HIGH_SPEED_PROFILE)
+			{
+				workscb.errorval = 0;
+				scb = workscb;
+				break;
+			}
 			// Pre-realign test
 			if (l == 0)
 			{
@@ -714,6 +723,7 @@ static float compress_symbolic_block_for_partition_1plane(
  * @param[out] tmpbuf                    The quantized weights for plane 1.
  */
 static float compress_symbolic_block_for_partition_2planes(
+	QualityProfile privateProfile,
 	const astcenc_config& config,
 	const block_size_descriptor& bsd,
 	const image_block& blk,
@@ -872,6 +882,7 @@ static float compress_symbolic_block_for_partition_2planes(
 
 	const auto& pi = bsd.get_partition_info(1, 0);
 	unsigned int candidate_count = compute_ideal_endpoint_formats(
+	    config.privateProfile,
 	    pi, blk, epm, qwt_bitcounts, qwt_errors,
 	    config.tune_candidate_limit,
 		bsd.block_mode_count_1plane_selected, bsd.block_mode_count_1plane_2plane_selected,
@@ -924,6 +935,7 @@ static float compress_symbolic_block_for_partition_2planes(
 
 			// Quantize the chosen color
 			workscb.color_formats[0] = pack_color_endpoints(
+			                               privateProfile,
 			                               workep.endpt0[0],
 			                               workep.endpt1[0],
 			                               rgbs_color, rgbo_color,
@@ -1192,7 +1204,7 @@ void compress_block(
 	float block_is_la_scale = block_is_la ? 1.0f / 1.05f : 1.0f;
 
 	bool block_skip_two_plane = false;
-	int max_partitions = ctx.config.tune_partition_count_limit;
+	int max_partitions = (ctx.config.privateProfile == HIGH_SPEED_PROFILE) ? 1 : ctx.config.tune_partition_count_limit;
 
 	unsigned int requested_partition_indices[3] {
 		ctx.config.tune_2partition_index_limit,
@@ -1228,7 +1240,6 @@ void compress_block(
 		trace_add_data("plane_count", 1);
 
 		scb.partition_count = 0;
-
 		// Encode as FP16 if using HDR
 		if ((decode_mode == ASTCENC_PRF_HDR) ||
 		    (decode_mode == ASTCENC_PRF_HDR_RGB_LDR_A))
@@ -1245,9 +1256,26 @@ void compress_block(
 			vint4 color_u16 = float_to_int_rtn(color_f32);
 			store(color_u16, scb.constant_color);
 		}
-
 		trace_add_data("exit", "quality hit");
-
+		if (ctx.config.privateProfile == HIGH_SPEED_PROFILE)
+		{
+			scb.block_type = SYM_BTYPE_NONCONST;
+			scb.partition_count = 1;
+			scb.color_formats_matched = 0;
+			scb.plane2_component = -1;
+			scb.block_mode = HIGH_SPEED_PROFILE_BLOCK_MODE;
+			scb.partition_index = 0;
+			scb.quant_mode = QUANT_256;
+			scb.color_formats[0] = 12; // color format is 12 when block mode is HIGH_SPEED_PROFILE_BLOCK_MODE
+			for (int w = 0; w < 16; w++) { // weights num is 16 when block mode is HIGH_SPEED_PROFILE_BLOCK_MODE
+				scb.weights[w] = 0;
+			}
+			for (int pixel = 0; pixel < BLOCK_MAX_COMPONENTS; pixel++) { // scb.constant_color[pixel] is 16 bit
+				scb.color_values[0][pixel << 1] = scb.constant_color[pixel] & BYTE_MASK; // low byte
+				scb.color_values[0][(pixel << 1) + 1] = (scb.constant_color[pixel] >> 8) & BYTE_MASK; // high byte
+			}
+		}
+		scb.privateProfile = ctx.config.privateProfile;
 		symbolic_to_physical(bsd, scb, pcb);
 #if QUALITY_CONTROL
  	 	if (calQualityEnable) {
@@ -1311,6 +1339,7 @@ void compress_block(
 		trace_add_data("search_mode", i);
 
 		float errorval = compress_symbolic_block_for_partition_1plane(
+		    ctx.config.privateProfile,
 		    ctx.config, bsd, blk, i == 0,
 		    error_threshold * errorval_mult[i] * errorval_overshoot,
 		    1, 0,  scb, tmpbuf, QUANT_32);
@@ -1320,7 +1349,7 @@ void compress_block(
 		quant_limit = bm.get_weight_quant_mode();
 
 		best_errorvals_for_pcount[0] = astc::min(best_errorvals_for_pcount[0], errorval);
-		if (errorval < (error_threshold * errorval_mult[i]))
+		if ((ctx.config.privateProfile == HIGH_SPEED_PROFILE) || (errorval < (error_threshold * errorval_mult[i])))
 		{
 			trace_add_data("exit", "quality hit");
 			goto END_OF_TESTS;
@@ -1337,6 +1366,10 @@ void compress_block(
 	// alpha is the most likely to be non-correlated if it is present in the data.
 	for (int i = BLOCK_MAX_COMPONENTS - 1; i >= 0; i--)
 	{
+		if (ctx.config.privateProfile == HIGH_SPEED_PROFILE)
+		{
+			break;
+		}
 		TRACE_NODE(node1, "pass");
 		trace_add_data("partition_count", 1);
 		trace_add_data("plane_count", 2);
@@ -1361,6 +1394,7 @@ void compress_block(
 		}
 
 		float errorval = compress_symbolic_block_for_partition_2planes(
+		    ctx.config.privateProfile,
 		    ctx.config, bsd, blk, error_threshold * errorval_overshoot,
 		    i, scb, tmpbuf, quant_limit);
 
@@ -1402,6 +1436,7 @@ void compress_block(
 			trace_add_data("search_mode", i);
 
 			float errorval = compress_symbolic_block_for_partition_1plane(
+			    ctx.config.privateProfile,
 			    ctx.config, bsd, blk, false,
 			    error_threshold * errorval_overshoot,
 			    partition_count, partition_indices[i],
@@ -1462,6 +1497,7 @@ END_OF_TESTS:
 	}
 
 	// Compress to a physical block
+	scb.privateProfile = ctx.config.privateProfile;
 	symbolic_to_physical(bsd, scb, pcb);
  #if QUALITY_CONTROL
 	if (calQualityEnable) {
