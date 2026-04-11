@@ -153,7 +153,9 @@ static void compute_angular_offsets(
  * @param[out] cut_low_weight_error      Per angular step, the low weight cut error.
  * @param[out] cut_high_weight_error     Per angular step, the high weight cut error.
  */
+#if ASTCENC_NEON != 0
 static void compute_lowest_and_highest_weight(
+	QualityProfile privateProfile,
 	unsigned int weight_count,
 	const float* dec_weight_ideal_value,
 	unsigned int max_angular_steps,
@@ -170,25 +172,20 @@ static void compute_lowest_and_highest_weight(
 
 	vfloat rcp_stepsize = int_to_float(vint::lane_id()) + vfloat(1.0f);
 
-	// Compute minimum/maximum weights in the weight array. Our remapping
-	// is monotonic, so the min/max rounded weights relate to the min/max
-	// unrounded weights in a straightforward way.
-	vfloat min_weight(FLT_MAX);
-	vfloat max_weight(-FLT_MAX);
-
-	vint lane_id = vint::lane_id();
-	for (unsigned int i = 0; i < weight_count; i += ASTCENC_SIMD_WIDTH)
+	float max_weight = 1.0f;
+	float min_weight = 0.0f;
+	// in HIGH_SPEED_PROFILE, max_weight is always equal to 1.0, and min_weight is always equal to 0
+	if (privateProfile != HIGH_SPEED_PROFILE)
 	{
-		vmask active = lane_id < vint(weight_count);
-		lane_id += vint(ASTCENC_SIMD_WIDTH);
-
-		vfloat weights = loada(dec_weight_ideal_value + i);
-		min_weight = min(min_weight, select(min_weight, weights, active));
-		max_weight = max(max_weight, select(max_weight, weights, active));
+		max_weight = dec_weight_ideal_value[0];
+		min_weight = dec_weight_ideal_value[0];
+		for (unsigned int j = 1; j < weight_count; j++)
+		{
+			float weight = dec_weight_ideal_value[j];
+			__asm__ volatile("fmax %s0, %s0, %s1" : "+w"(max_weight) : "w"(weight));
+			__asm__ volatile("fmin %s0, %s0, %s1" : "+w"(min_weight) : "w"(weight));
+		}
 	}
-
-	min_weight = hmin(min_weight);
-	max_weight = hmax(max_weight);
 
 	// Arrays are ANGULAR_STEPS long, so always safe to run full vectors
 	for (unsigned int sp = 0; sp < max_angular_steps; sp += ASTCENC_SIMD_WIDTH)
@@ -198,24 +195,34 @@ static void compute_lowest_and_highest_weight(
 		vfloat cut_high_weight_err = vfloat::zero();
 		vfloat offset = loada(offsets + sp);
 
-		// We know the min and max weight values, so we can figure out
-		// the corresponding indices before we enter the loop.
-		vfloat minidx = round(min_weight * rcp_stepsize - offset);
-		vfloat maxidx = round(max_weight * rcp_stepsize - offset);
+		offset = (vfloat)vnegq_f32(offset.m);
+		vfloat maxidx = vfloat::zero();
+		vfloat minidx = vfloat::zero();
+
+		if (privateProfile == HIGH_SPEED_PROFILE)
+		{
+			maxidx = round((vfloat)vaddq_f32(rcp_stepsize.m, offset.m));
+			minidx = round(offset);
+		}
+		else
+		{
+			maxidx = round((vfloat)vfmaq_n_f32(offset.m, rcp_stepsize.m, max_weight));
+			minidx = round((vfloat)vfmaq_n_f32(offset.m, rcp_stepsize.m, min_weight));
+		}
 
 		for (unsigned int j = 0; j < weight_count; j++)
 		{
-			vfloat sval = load1(dec_weight_ideal_value + j) * rcp_stepsize - offset;
+			vfloat sval = (vfloat)vfmaq_n_f32(offset.m, rcp_stepsize.m, *(dec_weight_ideal_value + j));
 			vfloat svalrte = round(sval);
 			vfloat diff = sval - svalrte;
 			errval += diff * diff;
 
-			// Accumulate errors for minimum index
+			// Accumulate on min hit
 			vmask mask = svalrte == minidx;
 			vfloat accum = cut_low_weight_err + vfloat(1.0f) - vfloat(2.0f) * diff;
 			cut_low_weight_err = select(cut_low_weight_err, accum, mask);
 
-			// Accumulate errors for maximum index
+			// Accumulate on max hit
 			mask = svalrte == maxidx;
 			accum = cut_high_weight_err + vfloat(1.0f) + vfloat(2.0f) * diff;
 			cut_high_weight_err = select(cut_high_weight_err, accum, mask);
@@ -239,6 +246,83 @@ static void compute_lowest_and_highest_weight(
 		rcp_stepsize = rcp_stepsize + vfloat(ASTCENC_SIMD_WIDTH);
 	}
 }
+#else
+static void compute_lowest_and_highest_weight(
+	QualityProfile privateProfile,
+	unsigned int weight_count,
+	const float* dec_weight_ideal_value,
+	unsigned int max_angular_steps,
+	unsigned int max_quant_steps,
+	const float* offsets,
+	float* lowest_weight,
+	int* weight_span,
+	float* error,
+	float* cut_low_weight_error,
+	float* cut_high_weight_error
+) {
+	(void) privateProfile;
+	promise(weight_count > 0);
+	promise(max_angular_steps > 0);
+
+	vfloat rcp_stepsize = int_to_float(vint::lane_id()) + vfloat(1.0f);
+
+	// Arrays are ANGULAR_STEPS long, so always safe to run full vectors
+	for (unsigned int sp = 0; sp < max_angular_steps; sp += ASTCENC_SIMD_WIDTH)
+	{
+		vfloat minidx(128.0f);
+		vfloat maxidx(-128.0f);
+		vfloat errval = vfloat::zero();
+		vfloat cut_low_weight_err = vfloat::zero();
+		vfloat cut_high_weight_err = vfloat::zero();
+		vfloat offset = loada(offsets + sp);
+
+		for (unsigned int j = 0; j < weight_count; j++)
+		{
+			vfloat sval = load1(dec_weight_ideal_value + j) * rcp_stepsize - offset;
+			vfloat svalrte = round(sval);
+			vfloat diff = sval - svalrte;
+			errval += diff * diff;
+
+			// Reset tracker on min hit
+			vmask mask = svalrte < minidx;
+			minidx = select(minidx, svalrte, mask);
+			cut_low_weight_err = select(cut_low_weight_err, vfloat::zero(), mask);
+
+			// Accumulate on min hit
+			mask = svalrte == minidx;
+			vfloat accum = cut_low_weight_err + vfloat(1.0f) - vfloat(2.0f) * diff;
+			cut_low_weight_err = select(cut_low_weight_err, accum, mask);
+
+			// Reset tracker on max hit
+			mask = svalrte > maxidx;
+			maxidx = select(maxidx, svalrte, mask);
+			cut_high_weight_err = select(cut_high_weight_err, vfloat::zero(), mask);
+
+			// Accumulate on max hit
+			mask = svalrte == maxidx;
+			accum = cut_high_weight_err + vfloat(1.0f) + vfloat(2.0f) * diff;
+			cut_high_weight_err = select(cut_high_weight_err, accum, mask);
+		}
+
+		// Write out min weight and weight span; clamp span to a usable range
+		vint span = float_to_int(maxidx - minidx + vfloat(1));
+		span = min(span, vint(max_quant_steps + 3));
+		span = max(span, vint(2));
+		storea(minidx, lowest_weight + sp);
+		storea(span, weight_span + sp);
+
+		// The cut_(lowest/highest)_weight_error indicate the error that results from  forcing
+		// samples that should have had the weight value one step (up/down).
+		vfloat ssize = 1.0f / rcp_stepsize;
+		vfloat errscale = ssize * ssize;
+		storea(errval * errscale, error + sp);
+		storea(cut_low_weight_err * errscale, cut_low_weight_error + sp);
+		storea(cut_high_weight_err * errscale, cut_high_weight_error + sp);
+
+		rcp_stepsize = rcp_stepsize + vfloat(ASTCENC_SIMD_WIDTH);
+	}
+}
+#endif
 
 /**
  * @brief The main function for the angular algorithm.
@@ -250,6 +334,7 @@ static void compute_lowest_and_highest_weight(
  * @param[out] high_value                Per angular step, the highest weight value.
  */
 static void compute_angular_endpoints_for_quant_levels(
+	QualityProfile privateProfile,
 	unsigned int weight_count,
 	const float* dec_weight_ideal_value,
 	unsigned int max_quant_level,
@@ -270,7 +355,7 @@ static void compute_angular_endpoints_for_quant_levels(
 	ASTCENC_ALIGNAS float cut_low_weight_error[ANGULAR_STEPS];
 	ASTCENC_ALIGNAS float cut_high_weight_error[ANGULAR_STEPS];
 
-	compute_lowest_and_highest_weight(weight_count, dec_weight_ideal_value,
+	compute_lowest_and_highest_weight(privateProfile, weight_count, dec_weight_ideal_value,
 	                                  max_angular_steps, max_quant_steps,
 	                                  angular_offsets, lowest_weight, weight_span, error,
 	                                  cut_low_weight_error, cut_high_weight_error);
@@ -352,6 +437,7 @@ static void compute_angular_endpoints_for_quant_levels(
 
 /* See header for documentation. */
 void compute_angular_endpoints_1plane(
+	QualityProfile privateProfile,
 	bool only_always,
 	const block_size_descriptor& bsd,
 	const float* dec_weight_ideal_value,
@@ -389,6 +475,7 @@ void compute_angular_endpoints_1plane(
 		}
 
 		compute_angular_endpoints_for_quant_levels(
+			privateProfile,
 		    weight_count,
 		    dec_weight_ideal_value + i * BLOCK_MAX_WEIGHTS,
 		    max_precision, low_values[i], high_values[i]);
@@ -420,6 +507,7 @@ void compute_angular_endpoints_1plane(
 
 /* See header for documentation. */
 void compute_angular_endpoints_2planes(
+	QualityProfile privateProfile,
 	const block_size_descriptor& bsd,
 	const float* dec_weight_ideal_value,
 	unsigned int max_weight_quant,
@@ -458,11 +546,13 @@ void compute_angular_endpoints_2planes(
 		}
 
 		compute_angular_endpoints_for_quant_levels(
+		    privateProfile,
 		    weight_count,
 		    dec_weight_ideal_value + i * BLOCK_MAX_WEIGHTS,
 		    max_precision, low_values1[i], high_values1[i]);
 
 		compute_angular_endpoints_for_quant_levels(
+		    privateProfile,
 		    weight_count,
 		    dec_weight_ideal_value + i * BLOCK_MAX_WEIGHTS + WEIGHTS_PLANE2_OFFSET,
 		    max_precision, low_values2[i], high_values2[i]);
