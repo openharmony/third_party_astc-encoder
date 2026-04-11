@@ -2285,22 +2285,20 @@ public:
 	}
 	~AstcCustomizedSoManager()
 	{
-		if (!astcCustomizedSoOpened_ || astcCustomizedSoHandle_ == nullptr)
+		if (astcCustomizedSoOpened_ && astcCustomizedSoHandle_ != nullptr)
 		{
-			printf("astcenc customized so is not be opened when dlclose!\n");
-			return;
-		}
 #if defined(_WIN32) && !defined(__CYGWIN__)
-		if (!FreeLibrary(astcCustomizedSoHandle_))
-		{
-			printf("astc dll FreeLibrary failed: %s\n", g_astcCustomizedSo);
-		}
+			if (!FreeLibrary(astcCustomizedSoHandle_))
+			{
+				printf("astc dll FreeLibrary failed: %s\n", g_astcCustomizedSo);
+			}
 #else
-		if (dlclose(astcCustomizedSoHandle_) != 0)
-		{
-			printf("astcenc so dlclose failed: %s\n", g_astcCustomizedSo.c_str());
-		}
+			if (dlclose(astcCustomizedSoHandle_) != 0)
+			{
+				printf("astcenc so dlclose failed: %s\n", g_astcCustomizedSo.c_str());
+			}
 #endif
+		}
 	}
 	IsCustomizedBlockMode isCustomizedBlockModeFunc_;
 	CustomizedMaxPartitions customizedMaxPartitionsFunc_;
