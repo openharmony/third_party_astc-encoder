@@ -22,6 +22,8 @@
 #include "astcenc.h"
 #include "astcenccli_internal.h"
 
+#include <cmath>
+
 #if defined(_WIN32)
 	#include <io.h>
 	#define isatty _isatty
@@ -149,7 +151,7 @@ struct compression_workload
 	astcenc_error error;
 #if QUALITY_CONTROL
 	bool calQualityEnable;
-	int32_t *mse[RGBA_COM];
+	int32_t* mse[RGBA_COM];
 #endif
 };
 
@@ -236,6 +238,10 @@ static void compression_workload_runner(
 ) {
 	(void)thread_count;
 
+	char name[16] { 0 };
+	std::snprintf(name, 16, "astc workc %d", thread_id);
+	set_thread_name(name);
+
 	compression_workload* work = static_cast<compression_workload*>(payload);
 	astcenc_error error = astcenc_compress_image(
 	                       work->context, work->image, &work->swizzle,
@@ -266,6 +272,10 @@ static void decompression_workload_runner(
 	void* payload
 ) {
 	(void)thread_count;
+
+	char name[16] { 0 };
+	std::snprintf(name, 16, "astc workd %d", thread_id);
+	set_thread_name(name);
 
 	decompression_workload* work = static_cast<decompression_workload*>(payload);
 	astcenc_error error = astcenc_decompress_image(
@@ -1178,15 +1188,15 @@ static int edit_astcenc_config(
 			config.trace_file_path = argv[argidx - 1];
 		}
 #endif
-		else if (!strcmp(argv[argidx], "-privateProfile"))
-		{
-			argidx += 2; // skip 2 chatacters to get next parameter
-			config.privateProfile = static_cast<QualityProfile>(atoi(argv[argidx - 1]));
-		}
 		else if (!strcmp(argv[argidx], "-dimage"))
 		{
 			argidx += 1;
 			cli_config.diagnostic_images = true;
+		}
+		else if (!strcmp(argv[argidx], "-privateProfile"))
+		{
+			argidx += 2; // skip 2 chatacters to get next parameter
+			config.privateProfile = static_cast<QualityProfile>(atoi(argv[argidx - 1]));
 		}
 		else // check others as well
 		{
@@ -1395,8 +1405,7 @@ static void image_set_pixel_u8(
 	assert(img.data_type == ASTCENC_TYPE_U8);
 
 	uint8_t* data = static_cast<uint8_t*>(img.data[0]);
-	pixel = pack_low_bytes(pixel);
-	store_nbytes(pixel, data + (4 * img.dim_x * y) + (4 * x    ));
+	pack_and_store_low_bytes(pixel, data + (4 * img.dim_x * y) + (4 * x));
 }
 
 /**
@@ -1527,6 +1536,57 @@ static void image_preprocess_premultiply(
 		}
 	}
 }
+
+#if QUALITY_CONTROL
+constexpr double MAX_PSNR = 99.9;
+
+
+constexpr double MAX_VALUE = 255;
+constexpr double THRESHOLD_R = 30.0;
+constexpr double THRESHOLD_G = 30.0;
+constexpr double THRESHOLD_B = 30.0;
+constexpr double THRESHOLD_A = 30.0;
+constexpr double THRESHOLD_RGB = 30.0;
+constexpr double LOG_BASE = 10.0;
+
+bool CheckQuality(int32_t* mseIn[RGBA_COM], int blockNum, int blockXYZ)
+{
+	double psnr[RGBA_COM + 1];
+	double threshold[RGBA_COM + 1] = { THRESHOLD_R, THRESHOLD_G, THRESHOLD_B, THRESHOLD_A, THRESHOLD_RGB};
+	uint64_t mseTotal[RGBA_COM + 1] = { 0, 0, 0, 0, 0};
+	for (int i = R_COM; i < RGBA_COM; i++) {
+		int32_t* mse = mseIn[i];
+		for (int j = 0; j < blockNum; j++) {
+			mseTotal[i] += *mse;
+			if(i != A_COM) mseTotal[RGBA_COM] += *mse;
+			mse++;
+		}
+	}
+	for (int i = R_COM; i < RGBA_COM; i++) {
+		if (mseTotal[i] == 0) {
+		psnr[i] = MAX_PSNR;
+		continue;
+		}
+		double mseRgb = (double)mseTotal[i] / (blockNum * blockXYZ);
+		psnr[i] = LOG_BASE * log((double)(MAX_VALUE * MAX_VALUE) / mseRgb) / log(LOG_BASE);
+	}
+	if (mseTotal[RGBA_COM] == 0) {
+		psnr[RGBA_COM] = MAX_PSNR;
+	}
+	else {
+		double mseRgb = (double)mseTotal[RGBA_COM] / (blockNum * blockXYZ * (RGBA_COM - 1));
+		psnr[RGBA_COM] = LOG_BASE * log((double)(MAX_VALUE * MAX_VALUE) / mseRgb) / log(LOG_BASE);
+	}
+
+
+	printf("astc psnr r%f g%f b%f a%f rgb%f\n", 
+		psnr[R_COM], psnr[G_COM], psnr[B_COM], psnr[A_COM],
+		psnr[RGBA_COM]);
+	return (psnr[R_COM] > threshold[R_COM]) && (psnr[G_COM] > threshold[G_COM])
+		&& (psnr[B_COM] > threshold[B_COM]) && (psnr[A_COM] > threshold[A_COM])
+		&& (psnr[RGBA_COM] > threshold[RGBA_COM]);
+}
+#endif
 
 /**
  * @brief Populate a single diagnostic image showing aspects of the encoding.
@@ -1887,53 +1947,6 @@ static void print_diagnostic_images(
 	free_image(diag_image);
 }
 
-#if QUALITY_CONTROL
-constexpr double MAX_PSNR = 99.9;
-constexpr double MAX_VALUE = 255;
-constexpr double THRESHOLD_R = 30.0;
-constexpr double THRESHOLD_G = 30.0;
-constexpr double THRESHOLD_B = 30.0;
-constexpr double THRESHOLD_A = 30.0;
-constexpr double THRESHOLD_RGB = 30.0;
-constexpr double LOG_BASE = 10.0;
-
-bool CheckQuality(int32_t* mseIn[RGBA_COM], int blockNum, int blockXYZ)
-{
-    double psnr[RGBA_COM + 1];
-    double threshold[RGBA_COM + 1] = { THRESHOLD_R, THRESHOLD_G, THRESHOLD_B, THRESHOLD_A, THRESHOLD_RGB};
-    uint64_t mseTotal[RGBA_COM + 1] = { 0, 0, 0, 0, 0};
-    for (int i = R_COM; i < RGBA_COM; i++) {
-        int32_t* mse = mseIn[i];
-        for (int j = 0; j < blockNum; j++) {
-            mseTotal[i] += *mse;
-            if(i != A_COM) mseTotal[RGBA_COM] += *mse;
-            mse++;
-        }
-    }
-    for (int i = R_COM; i < RGBA_COM; i++) {
-        if (mseTotal[i] == 0) {
-        	psnr[i] = MAX_PSNR;
-        	continue;
-        }
-        double mseRgb = (double)mseTotal[i] / (blockNum * blockXYZ);
-        psnr[i] = LOG_BASE * log((double)(MAX_VALUE * MAX_VALUE) / mseRgb) / log(LOG_BASE);
-    }
-    if (mseTotal[RGBA_COM] == 0) {
-        psnr[RGBA_COM] = MAX_PSNR;
-    }
-    else {
-        double mseRgb = (double)mseTotal[RGBA_COM] / (blockNum * blockXYZ * (RGBA_COM - 1));
-        psnr[RGBA_COM] = LOG_BASE * log((double)(MAX_VALUE * MAX_VALUE) / mseRgb) / log(LOG_BASE);
-    }
-    printf("astc psnr r%f g%f b%f a%f rgb%f\n", 
-        psnr[R_COM], psnr[G_COM], psnr[B_COM], psnr[A_COM],
-        psnr[RGBA_COM]);
-    return (psnr[R_COM] > threshold[R_COM]) && (psnr[G_COM] > threshold[G_COM])
-        && (psnr[B_COM] > threshold[B_COM]) && (psnr[A_COM] > threshold[A_COM])
-        && (psnr[RGBA_COM] > threshold[RGBA_COM]);
-}
-#endif
-
 /**
  * @brief The main entry point.
  *
@@ -1946,6 +1959,8 @@ int astcenc_main(
 	int argc,
 	char **argv
 ) {
+	set_thread_name("astc main");
+
 	double start_time = get_time();
 
 	if (argc < 2)
@@ -2227,16 +2242,20 @@ int astcenc_main(
 #if QUALITY_CONTROL
 		work.calQualityEnable = true;
 		work.mse[R_COM] = work.mse[G_COM] = work.mse[B_COM] = work.mse[A_COM] = nullptr;
-		if (work.calQualityEnable) {
-		for (int i = R_COM; i < RGBA_COM; i++) {
-				work.mse[i] = (int32_t*)calloc(blocks_x * blocks_y, sizeof(int32_t));
-				if (!work.mse[i]) {
-					printf("quality control calloc failed");
-					return -1;
+		if (work.calQualityEnable)
+		{
+			for (int i = R_COM; i < RGBA_COM; i++)
+			{
+				work.mse[i] = static_cast<int32_t*>(calloc(blocks_x * blocks_y, sizeof(int32_t)));
+				if (!work.mse[i])
+				{
+					print_error("quality control calloc failed\n");
+					return 1;
 				}
 			}
 		}
 #endif
+
 		// Only launch worker threads for multi-threaded use - it makes basic
 		// single-threaded profiling and debugging a little less convoluted
 		double start_compression_time = get_time();
@@ -2258,11 +2277,11 @@ int astcenc_main(
 			{
 				work.error = astcenc_compress_image(
 					work.context, work.image, &work.swizzle,
-					work.data_out, work.data_len, 
+					work.data_out, work.data_len,
 #if QUALITY_CONTROL
-			    	work.calQualityEnable, work.mse,
+					work.calQualityEnable, work.mse,
 #endif
-			    	0);
+					0);
 			}
 
 			astcenc_compress_reset(codec_context);
@@ -2282,9 +2301,10 @@ int astcenc_main(
 			print_error("ERROR: Codec compress failed: %s\n", astcenc_get_error_string(work.error));
 			return 1;
 		}
+
 #if QUALITY_CONTROL
 		if (work.calQualityEnable && !CheckQuality(work.mse, blocks_x * blocks_y, config.block_x * config.block_y)) {
-		    work.error = ASTCENC_ERR_BAD_QUALITY_CHECK;
+			work.error = ASTCENC_ERR_BAD_QUALITY_CHECK;
 		}
 		if (work.calQualityEnable) {
 			for (int i = R_COM; i < RGBA_COM; i++) {
@@ -2294,6 +2314,7 @@ int astcenc_main(
 			}
 		}
 #endif
+
 		image_comp.block_x = config.block_x;
 		image_comp.block_y = config.block_y;
 		image_comp.block_z = config.block_z;
@@ -2346,7 +2367,8 @@ int astcenc_main(
 
 		if (work.error != ASTCENC_SUCCESS)
 		{
-			print_error("ERROR: Codec decompress failed: %s\n", astcenc_get_error_string(codec_status));
+			print_error("ERROR: Codec decompress failed: %s\n",
+				        astcenc_get_error_string(work.error));
 			return 1;
 		}
 	}

@@ -43,6 +43,7 @@
 #include <stdio.h>
 #include <cassert>
 #include <cstring>
+#include <cfloat>
 
 static constexpr unsigned int ANGULAR_STEPS { 32 };
 
@@ -104,14 +105,17 @@ static void compute_angular_offsets(
 	// Precompute isample; arrays are always allocated 64 elements long
 	for (unsigned int i = 0; i < weight_count; i += ASTCENC_SIMD_WIDTH)
 	{
-		// Add 2^23 and interpreting bits extracts round-to-nearest int
-		vfloat sample = loada(dec_weight_ideal_value + i) * (SINCOS_STEPS - 1.0f) + vfloat(12582912.0f);
-		vint isample = float_as_int(sample) & vint((SINCOS_STEPS - 1));
+		// Ideal weight can be outside [0, 1] range, so clamp to fit table
+		vfloat ideal_weight = clampzo(loada(dec_weight_ideal_value + i));
+
+		// Convert a weight to a sincos table index
+		vfloat sample = ideal_weight * (SINCOS_STEPS - 1.0f);
+		vint isample = float_to_int_rtn(sample);
 		storea(isample, isamplev + i);
 	}
 
 	// Arrays are multiple of SIMD width (ANGULAR_STEPS), safe to overshoot max
-	vfloat mult = vfloat(1.0f / (2.0f * astc::PI));
+	vfloat mult(1.0f / (2.0f * astc::PI));
 
 	for (unsigned int i = 0; i < max_angular_steps; i += ASTCENC_SIMD_WIDTH)
 	{
@@ -166,7 +170,7 @@ static void compute_lowest_and_highest_weight(
 	promise(weight_count > 0);
 	promise(max_angular_steps > 0);
 
-	vfloat rcp_stepsize = vfloat::lane_id() + vfloat(1.0f);
+	vfloat rcp_stepsize = int_to_float(vint::lane_id()) + vfloat(1.0f);
 
 	float max_weight = 1.0f;
 	float min_weight = 0.0f;
@@ -262,7 +266,7 @@ static void compute_lowest_and_highest_weight(
 	promise(weight_count > 0);
 	promise(max_angular_steps > 0);
 
-	vfloat rcp_stepsize = vfloat::lane_id() + vfloat(1.0f);
+	vfloat rcp_stepsize = int_to_float(vint::lane_id()) + vfloat(1.0f);
 
 	// Arrays are ANGULAR_STEPS long, so always safe to run full vectors
 	for (unsigned int sp = 0; sp < max_angular_steps; sp += ASTCENC_SIMD_WIDTH)
@@ -473,7 +477,7 @@ void compute_angular_endpoints_1plane(
 		}
 
 		compute_angular_endpoints_for_quant_levels(
-		    privateProfile,
+			privateProfile,
 		    weight_count,
 		    dec_weight_ideal_value + i * BLOCK_MAX_WEIGHTS,
 		    max_precision, low_values[i], high_values[i]);

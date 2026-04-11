@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // ----------------------------------------------------------------------------
-// Copyright 2011-2022 Arm Limited
+// Copyright 2011-2025 Arm Limited
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not
 // use this file except in compliance with the License. You may obtain a copy
@@ -153,7 +153,6 @@ static void compute_error_squared_rgb_single_partition(
 		vfloat data_r = gatherf(blk.data_r, tix);
 		vfloat data_g = gatherf(blk.data_g, tix);
 		vfloat data_b = gatherf(blk.data_b, tix);
-
 		vfloat data_rgb_avg = (data_r + data_g + data_b) * one_third;
 		vfloat data_rgb_0 = data_rgb_avg - data_r;
 		vfloat data_rgb_1 = data_rgb_avg - data_g;
@@ -193,7 +192,7 @@ static void compute_error_squared_rgb_single_partition(
 		haccumulate(rgbl_errv0, dist0 * dist0);
 		haccumulate(rgbl_errv1, dist1 * dist1);
 		haccumulate(rgbl_errv2, dist2 * dist2);
-		
+
 		// Compute luma error - no "amod", its always zero
 		dist0 = data_rgb_0;
 		dist1 = data_rgb_1;
@@ -204,10 +203,10 @@ static void compute_error_squared_rgb_single_partition(
 		haccumulate(l_errv2, dist2 * dist2);
 	}
 
-	uncor_errv = uncor_errv0 * ews.lane<0>() + uncor_errv1 * ews.lane<1>() + uncor_errv2 * ews.lane<2>(); // channel 0,1,2
-	samec_errv = samec_errv0 * ews.lane<0>() + samec_errv1 * ews.lane<1>() + samec_errv2 * ews.lane<2>(); // channel 0,1,2
-	rgbl_errv = rgbl_errv0 * ews.lane<0>() + rgbl_errv1 * ews.lane<1>() + rgbl_errv2 * ews.lane<2>(); // channel 0,1,2
-	l_errv = l_errv0 * ews.lane<0>() + l_errv1 * ews.lane<1>() + l_errv2 * ews.lane<2>(); // channel 0,1,2
+	uncor_errv = uncor_errv0 * ews.lane<0>() + uncor_errv1 * ews.lane<1>() + uncor_errv2 * ews.lane<2>();
+	samec_errv = samec_errv0 * ews.lane<0>() + samec_errv1 * ews.lane<1>() + samec_errv2 * ews.lane<2>();
+	rgbl_errv = rgbl_errv0 * ews.lane<0>() + rgbl_errv1 * ews.lane<1>() + rgbl_errv2 * ews.lane<2>();
+	l_errv = l_errv0 * ews.lane<0>() + l_errv1 * ews.lane<1>() + l_errv2 * ews.lane<2>();
 
 	if (i < texel_count)
 	{
@@ -227,7 +226,6 @@ static void compute_error_squared_rgb_single_partition(
 		vfloat data_r = gatherf(blk.data_r, tix);
 		vfloat data_g = gatherf(blk.data_g, tix);
 		vfloat data_b = gatherf(blk.data_b, tix);
-
 		vfloat data_rgb_avg = (data_r + data_g + data_b) * one_third;
 		vfloat data_rgb_0 = data_rgb_avg - data_r;
 		vfloat data_rgb_1 = data_rgb_avg - data_g;
@@ -315,7 +313,7 @@ static void compute_encoding_choice_errors(
 	int partition_count = pi.partition_count;
 	promise(partition_count > 0);
 
-	partition_metrics *pms = reinterpret_cast<partition_metrics *>(&blk.pms[0]);
+	partition_metrics *pms = (partition_metrics *)&blk.pms[0];
 
 	if (!blk.is_constant_channel(3) || (partition_count != 1 && privateProfile == HIGH_QUALITY_PROFILE))
 	{
@@ -1253,13 +1251,13 @@ unsigned int compute_ideal_endpoint_formats(
 	vfloat clear_error(ERROR_CALC_DEFAULT);
 	vint clear_quant(0);
 
-	unsigned int packed_start_block_mode = round_down_to_simd_multiple_vla(start_block_mode);
+	size_t packed_start_block_mode = round_down_to_simd_multiple_vla(start_block_mode);
 	storea(clear_error, errors_of_best_combination + packed_start_block_mode);
 	store_nbytes(clear_quant, best_quant_levels + packed_start_block_mode);
 	store_nbytes(clear_quant, best_quant_levels_mod + packed_start_block_mode);
 
 	// Ensure that last iteration overstep contains data that will never be picked
-	unsigned int packed_end_block_mode = round_down_to_simd_multiple_vla(end_block_mode - 1);
+	size_t packed_end_block_mode = round_down_to_simd_multiple_vla(end_block_mode - 1);
 	storea(clear_error, errors_of_best_combination + packed_end_block_mode);
 	store_nbytes(clear_quant, best_quant_levels + packed_end_block_mode);
 	store_nbytes(clear_quant, best_quant_levels_mod + packed_end_block_mode);
@@ -1412,9 +1410,12 @@ unsigned int compute_ideal_endpoint_formats(
 		vint vbest_error_index(-1);
 		vfloat vbest_ep_error(ERROR_CALC_DEFAULT);
 
-		start_block_mode = round_down_to_simd_multiple_vla(start_block_mode);
-		vint lane_ids = vint::lane_id() + vint(start_block_mode);
-		for (unsigned int j = start_block_mode; j < end_block_mode; j += ASTCENC_SIMD_WIDTH)
+		// TODO: This should use size_t for the inputs of start/end_block_mode
+		// to avoid some of this type conversion, but that propagates and will
+		// need a bigger PR to fix
+		size_t start_mode = round_down_to_simd_multiple_vla(start_block_mode);
+		vint lane_ids = vint::lane_id() + vint_from_size(start_mode);
+		for (size_t j = start_mode; j < end_block_mode; j += ASTCENC_SIMD_WIDTH)
 		{
 			vfloat err = vfloat(errors_of_best_combination + j);
 			vmask mask = err < vbest_ep_error;
@@ -1426,8 +1427,8 @@ unsigned int compute_ideal_endpoint_formats(
 		// Pick best mode from the SIMD result, using lowest matching index to ensure invariance
 		vmask lanes_min_error = vbest_ep_error == hmin(vbest_ep_error);
 		vbest_error_index = select(vint(0x7FFFFFFF), vbest_error_index, lanes_min_error);
-		vbest_error_index = hmin(vbest_error_index);
-		int best_error_index = vbest_error_index.lane<0>();
+
+		int best_error_index = hmin_s(vbest_error_index);
 
 		best_error_weights[i] = best_error_index;
 

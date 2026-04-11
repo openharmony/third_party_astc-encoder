@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // ----------------------------------------------------------------------------
-// Copyright 2011-2024 Arm Limited
+// Copyright 2011-2025 Arm Limited
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not
 // use this file except in compliance with the License. You may obtain a copy
@@ -795,7 +795,7 @@ void astcenc_context_free(
 	if (ctxo)
 	{
 		astcenc_contexti* ctx = &ctxo->context;
-		if (ctx->working_buffers)
+ 		if (ctx->working_buffers)
 		{
 			aligned_free<compression_working_buffers>(ctx->working_buffers);
 		}
@@ -834,12 +834,11 @@ static void compress_image(
 	unsigned int thread_index,
 	const astcenc_image& image,
 	const astcenc_swizzle& swizzle,
-#if QUALITY_CONTROL
-	uint8_t* buffer,
-	bool calQualityEnable,
-	int32_t *mse[RGBA_COM]
-#else
 	uint8_t* buffer
+#if QUALITY_CONTROL
+	,
+	bool calQualityEnable,
+	int32_t* mse[RGBA_COM]
 #endif
 ) {
 	astcenc_contexti& ctx = ctxo.context;
@@ -979,19 +978,20 @@ static void compress_image(
 
 			int offset = ((z * yblocks + y) * xblocks + x) * 16;
 			uint8_t *bp = buffer + offset;
-#if QUALITY_CONTROL
-			int32_t *mseBlock[RGBA_COM] = {nullptr, nullptr, nullptr, nullptr};
-			if (calQualityEnable) {
-				offset = (z * yblocks + y) * xblocks + x;
-				mseBlock[R_COM] = mse[R_COM] + offset;
-				mseBlock[G_COM] = mse[G_COM] + offset;
-				mseBlock[B_COM] = mse[B_COM] + offset;
-				mseBlock[A_COM] = mse[A_COM] + offset;
+			#if QUALITY_CONTROL
+			int32_t* mseBlock[RGBA_COM] = { nullptr, nullptr, nullptr, nullptr };
+			if (calQualityEnable)
+			{
+				int mse_offset = (z * yblocks + y) * xblocks + x;
+				mseBlock[R_COM] = mse[R_COM] + mse_offset;
+				mseBlock[G_COM] = mse[G_COM] + mse_offset;
+				mseBlock[B_COM] = mse[B_COM] + mse_offset;
+				mseBlock[A_COM] = mse[A_COM] + mse_offset;
 			}
 			compress_block(ctx, blk, bp, temp_buffers, calQualityEnable, mseBlock);
-#else
+			#else
 			compress_block(ctx, blk, bp, temp_buffers);
-#endif
+			#endif
 		}
 
 		ctxo.manage_compress.complete_task_assignment(count);
@@ -1114,7 +1114,7 @@ astcenc_error astcenc_compress_image(
 	size_t data_len,
 #if QUALITY_CONTROL
 	bool calQualityEnable,
-	int32_t *mse[RGBA_COM],
+	int32_t* mse[RGBA_COM],
 #endif
 	unsigned int thread_index
 ) {
@@ -1263,6 +1263,29 @@ astcenc_error astcenc_compress_reset(
 }
 
 /* See header for documentation. */
+astcenc_error astcenc_compress_cancel(
+	astcenc_context* ctxo
+) {
+#if defined(ASTCENC_DECOMPRESS_ONLY)
+	(void)ctxo;
+	return ASTCENC_ERR_BAD_CONTEXT;
+#else
+	astcenc_contexti* ctx = &ctxo->context;
+	if (ctx->config.flags & ASTCENC_FLG_DECOMPRESS_ONLY)
+	{
+		return ASTCENC_ERR_BAD_CONTEXT;
+	}
+
+	// Cancel compression before cancelling avg. This avoids the race condition
+	// where cancelling them in the other order could see a compression worker
+	// starting to process even though some of the avg data is undefined.
+	ctxo->manage_compress.cancel();
+	ctxo->manage_avg.cancel();
+	return ASTCENC_SUCCESS;
+#endif
+}
+
+/* See header for documentation. */
 astcenc_error astcenc_decompress_image(
 	astcenc_context* ctxo,
 	const uint8_t* data,
@@ -1306,7 +1329,7 @@ astcenc_error astcenc_decompress_image(
 		return ASTCENC_ERR_OUT_OF_MEM;
 	}
 
-	image_block blk;
+	image_block blk {};
 	blk.texel_count = static_cast<uint8_t>(block_x * block_y * block_z);
 
 	// Decode mode inferred from the output data type
