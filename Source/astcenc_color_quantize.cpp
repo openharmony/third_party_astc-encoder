@@ -2010,7 +2010,7 @@ uint8_t pack_color_endpoints(
 		break;
 
 	case FMT_RGBA:
-		if ((privateProfile == HIGH_QUALITY_PROFILE) && (quant_level <= QUANT_160)) // only full quality profile to try
+		if ((privateProfile == HIGH_QUALITY_PROFILE) && (quant_level <= 18)) // only full quality profile to try
 		{
 			if (try_quantize_rgba_delta_blue_contract(color0_ldr, color1_ldr, color0_out, color1_out, quant_level))
 			{

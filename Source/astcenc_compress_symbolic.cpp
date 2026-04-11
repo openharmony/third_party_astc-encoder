@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 // ----------------------------------------------------------------------------
-// Copyright 2011-2024 Arm Limited
+// Copyright 2011-2025 Arm Limited
 //
 // Licensed under the Apache License, Version 2.0 (the "License"); you may not
 // use this file except in compliance with the License. You may obtain a copy
@@ -184,7 +184,7 @@ static bool realign_weights_undecimated(
 			vfloat4 color_diff_down1 = color_diff1 + color_offset1 * weight_down_vec.lane<1>();
 			vfloat4 color_diff_down2 = color_diff2 + color_offset2 * weight_down_vec.lane<2>();
 			vfloat4 color_diff_down3 = color_diff3 + color_offset3 * weight_down_vec.lane<3>();
-			
+
 			vfloat4 color_diff_up0 = color_diff0 + color_offset0 * weight_up_vec.lane<0>();
 			vfloat4 color_diff_up1 = color_diff1 + color_offset1 * weight_up_vec.lane<1>();
 			vfloat4 color_diff_up2 = color_diff2 + color_offset2 * weight_up_vec.lane<2>();
@@ -210,7 +210,7 @@ static bool realign_weights_undecimated(
 			vfloat4 error_up_vec = vfloat4(error_up0, error_up1, error_up2, error_up3);
 
 			vmask4 check_result_up = (error_up_vec < error_base_vec) &
-			        (error_up_vec < error_down_vec) & (uqw_vec < vint4(64));
+					(error_up_vec < error_down_vec) & (uqw_vec < vint4(64));
 
 			vmask4 check_result_down = (error_down_vec < error_base_vec) & (uqw_vec > vint4::zero());
 			check_result_down = check_result_down & (~check_result_up);
@@ -222,8 +222,8 @@ static bool realign_weights_undecimated(
 
 				dec_weights_uquant[texel] = uqw_vec.lane<0>();
 				dec_weights_uquant[texel + 1] = uqw_vec.lane<1>();
-				dec_weights_uquant[texel + 2] = uqw_vec.lane<2>();    // channel 2
-				dec_weights_uquant[texel + 3] = uqw_vec.lane<3>();    // channel 3
+				dec_weights_uquant[texel + 2] = uqw_vec.lane<2>();
+				dec_weights_uquant[texel + 3] = uqw_vec.lane<3>();
 				adjustments = true;
 			}
 		};
@@ -274,6 +274,7 @@ static bool realign_weights_undecimated(
 		dec_weights_uquant += WEIGHTS_PLANE2_OFFSET;
 		plane_mask = ~plane_mask;
 	}
+
 	return adjustments;
 }
 #else
@@ -1394,9 +1395,9 @@ void compress_block(
 	bool calQualityEnable,
 	int32_t *mseBlock[RGBA_COM]
 #else
-	compression_working_buffers& tmpbuf
+ 	compression_working_buffers& tmpbuf
 #endif
-	)
+)
 {
 	astcenc_profile decode_mode = ctx.config.profile;
 	symbolic_compressed_block scb;
@@ -1474,7 +1475,6 @@ void compress_block(
 		trace_add_data("plane_count", 1);
 
 		scb.partition_count = 0;
-
 		// Encode as FP16 if using HDR
 		if ((decode_mode == ASTCENC_PRF_HDR) ||
 		    (decode_mode == ASTCENC_PRF_HDR_RGB_LDR_A))
@@ -1491,7 +1491,6 @@ void compress_block(
 			vint4 color_u16 = float_to_int_rtn(color_f32);
 			store(color_u16, scb.constant_color);
 		}
-
 		trace_add_data("exit", "quality hit");
 		if (ctx.config.privateProfile != HIGH_QUALITY_PROFILE &&
 			ctx.config.privateProfile != HIGH_SPEED_PROFILE_HIGHBITS)
@@ -1522,7 +1521,7 @@ void compress_block(
 			for (int w = 0; w < 16; w++) { // weights num is 16 when block mode is HIGH_SPEED_PROFILE_BLOCK_MODE
 				scb.weights[w] = 0;
 			}
-			for (unsigned int pixel = 0; pixel < BLOCK_MAX_COMPONENTS; pixel++) { // scb.constant_color[pixel] is 16 bit
+			for (int pixel = 0; pixel < BLOCK_MAX_COMPONENTS; pixel++) { // scb.constant_color[pixel] is 16 bit
 				scb.color_values[0][pixel << 1] = scb.constant_color[pixel] & BYTE_MASK; // low byte
 				scb.color_values[0][(pixel << 1) + 1] = (scb.constant_color[pixel] >> 8) & BYTE_MASK; // high byte
 			}
@@ -1530,9 +1529,9 @@ void compress_block(
 		scb.privateProfile = ctx.config.privateProfile;
 		symbolic_to_physical(bsd, scb, pcb);
 #if QUALITY_CONTROL
-	if (calQualityEnable) {
-		*mseBlock[R_COM] = *mseBlock[G_COM] = *mseBlock[B_COM] = *mseBlock[A_COM] = 0;
-	}
+ 	 	if (calQualityEnable) {
+ 	 		*mseBlock[R_COM] = *mseBlock[G_COM] = *mseBlock[B_COM] = *mseBlock[A_COM];
+ 	 	}
 #endif
 		return;
 	}
@@ -1572,7 +1571,7 @@ void compress_block(
 		1.0f
 	};
 
-	static const float errorval_overshoot = 1.0f / ctx.config.tune_mse_overshoot;
+	const float errorval_overshoot = 1.0f / ctx.config.tune_mse_overshoot;
 
 	// Only enable MODE0 fast path if enabled
 	// Never enable for 3D blocks as no "always" block modes are available
@@ -1753,7 +1752,7 @@ END_OF_TESTS:
 	// Compress to a physical block
 	scb.privateProfile = ctx.config.privateProfile;
 	symbolic_to_physical(bsd, scb, pcb);
-#if QUALITY_CONTROL
+ #if QUALITY_CONTROL
 	if (calQualityEnable) {
 		image_block decBlk = blk;
 		decompress_symbolic_block(ctx.config.profile, bsd, blk.xpos, blk.ypos, blk.zpos, scb, decBlk);
@@ -1768,8 +1767,8 @@ END_OF_TESTS:
 		*mseBlock[G_COM] = colorSumDiff.lane<1>();
 		*mseBlock[B_COM] = colorSumDiff.lane<2>();
 		*mseBlock[A_COM] = colorSumDiff.lane<3>();
-    }
-#endif
+		}
+ 	 #endif
 }
 
 #endif
