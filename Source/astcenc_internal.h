@@ -2258,6 +2258,8 @@ void aligned_free(T* ptr)
 const LPCSTR g_astcCustomizedSo = "../../hms/toolchains/lib/libastcCustomizedEncode.dll";
 #elif defined(__APPLE__)
 const std::string g_astcCustomizedSo = "../../hms/toolchains/lib/libastcCustomizedEncode.dylib";
+#elif defined(LINUX_ARM64)
+const std::string g_astcCustomizedSo = "../../hms/toolchains/lib/libastcCustomizedEncode.z.so";
 #else
 const std::string g_astcCustomizedSo = "../../hms/toolchains/lib/libastcCustomizedEncode.so";
 #endif
