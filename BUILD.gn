@@ -58,9 +58,6 @@ ohos_source_set("astc_encoder_static") {
       defined(global_parts_info.product_hmos_sdk_product_hmos_sdk)) {
     defines += [ "BUILD_HMOS_SDK" ]
   }
-  if (is_linux && target_cpu == "arm64") {
-    defines += [ "LINUX_ARM64" ]
-  }
   part_name = "astc-encoder"
   subsystem_name = "thirdparty"
 }
